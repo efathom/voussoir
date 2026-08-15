@@ -1,7 +1,5 @@
 # voussoir
 
-> Default-runnable LLM agent framework. Security as Lego, not lectures.
-
 voussoir is a Python framework for building LLM agents that work securely out of the
 box — no configuration ceremony required. You get a `Container` that holds your tools,
 credentials, and guardrails, and an `Agent` that runs against it. Security is structural:
