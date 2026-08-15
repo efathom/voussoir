@@ -32,7 +32,7 @@ jobs:
           git -C ../ctxforge checkout --quiet FETCH_HEAD
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
@@ -57,7 +57,7 @@ jobs:
           git -C ../ctxforge fetch --quiet --depth 1 origin 59779203e054f8744c9f5a763acb93e74c3254a3
           git -C ../ctxforge checkout --quiet FETCH_HEAD
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.13"
           enable-cache: true
