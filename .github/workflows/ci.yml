@@ -20,15 +20,16 @@ jobs:
       - uses: actions/checkout@v4
 
       # voussoir depends on the sibling ctxforge repo (editable path source in
-      # [tool.uv.sources]). Check out ctxforge next to voussoir so `uv sync`
-      # can resolve it. Pin to a known-good commit; bump when ctxforge changes
-      # its public Protocols.
+      # [tool.uv.sources]: path = "../ctxforge"). actions/checkout refuses to
+      # write outside $GITHUB_WORKSPACE, so clone it manually into the sibling
+      # location (`../ctxforge` relative to the repo root). Pin to a known-good
+      # commit; bump when ctxforge changes its public Protocols.
       - name: Checkout ctxforge (sibling dependency)
-        uses: actions/checkout@v4
-        with:
-          repository: efathom/ctxforge
-          ref: 59779203e054f8744c9f5a763acb93e74c3254a3
-          path: ../ctxforge
+        run: |
+          git init ../ctxforge
+          git -C ../ctxforge remote add origin https://github.com/efathom/ctxforge.git
+          git -C ../ctxforge fetch --quiet --depth 1 origin 59779203e054f8744c9f5a763acb93e74c3254a3
+          git -C ../ctxforge checkout --quiet FETCH_HEAD
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -50,11 +51,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Checkout ctxforge (sibling dependency)
-        uses: actions/checkout@v4
-        with:
-          repository: efathom/ctxforge
-          ref: 59779203e054f8744c9f5a763acb93e74c3254a3
-          path: ../ctxforge
+        run: |
+          git init ../ctxforge
+          git -C ../ctxforge remote add origin https://github.com/efathom/ctxforge.git
+          git -C ../ctxforge fetch --quiet --depth 1 origin 59779203e054f8744c9f5a763acb93e74c3254a3
+          git -C ../ctxforge checkout --quiet FETCH_HEAD
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
