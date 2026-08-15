@@ -14,10 +14,10 @@ with respx/ASGI mocking — no docker-compose or real network required.
 
 from __future__ import annotations
 
+import httpx
 import pytest
-import respx
 from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient, Response
+from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 
 from voussoir.a2a.card import AgentCard
@@ -106,24 +106,29 @@ async def test_a2a_02_tampered_signature_raises_card_verification_error(
         header_b64, payload_b64, sig_b64 = raw.split(".")
         tampered = f"{header_b64}.{payload_b64}.{sig_b64[:-2]}XX"
 
-        # v1.0.4 E2 / C5: card now carries an explicit jwks_uri derived
-        # from the publisher's endpoint origin (https://test/...), not the
-        # consumer's fetch base (https://tampered). Mock both endpoints so
-        # the resolver can fetch the publisher's public key before failing
-        # signature verification on the tampered card.
-        with respx.mock(assert_all_called=False) as mock:
-            mock.get("https://tampered/.well-known/agent-card.json").mock(
-                return_value=Response(
+        # v1.0.4 E2 / C5: the card carries an explicit jwks_uri derived from the
+        # publisher's endpoint origin (https://test/...), not the consumer's
+        # fetch base (https://tampered). Serve both endpoints from a plain
+        # httpx.MockTransport (no global respx router) so the resolver can fetch
+        # the publisher's public key before failing signature verification on the
+        # tampered card. A MockTransport injected via http_client= is fully
+        # deterministic — respx's process-wide mock could intermittently fail to
+        # intercept a separately-created client, making this test flaky in CI.
+        def _handler(request: httpx.Request) -> httpx.Response:
+            url = str(request.url)
+            if url == "https://tampered/.well-known/agent-card.json":
+                return httpx.Response(
                     200,
                     content=tampered.encode(),
                     headers={"content-type": "application/jose"},
                 )
-            )
-            mock.get("https://test/.well-known/jwks.json").mock(
-                return_value=Response(200, json=jwks_json)
-            )
+            if url == "https://test/.well-known/jwks.json":
+                return httpx.Response(200, json=jwks_json)
+            return httpx.Response(404, content=b"not found")
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(_handler)) as mock_client:
             with pytest.raises(CardVerificationError):
-                await discover_card("https://tampered")
+                await discover_card("https://tampered", http_client=mock_client)
 
 
 # ---------------------------------------------------------------------------
