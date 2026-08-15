@@ -46,23 +46,37 @@ asyncio.run(main())
 `default_container()` wires all framework defaults in one call: it detects your
 API key, binds the matching LLM provider (Anthropic when `ANTHROPIC_API_KEY` is
 set, OpenAI otherwise), and registers an in-memory session and memory store.
-Non-security-critical bindings can be overridden after the call; six
-security-critical bindings (`Authorizer`, `KeyProvider`, `ITelemetrySink`,
-`ILLMProvider`, `IMemoryStore`, `ISessionStore`) are **frozen** to prevent
-plugin-driven swaps. To upgrade the memory tier, build a fresh `Container()`
+Seven security-critical bindings (`Authorizer`, `KeyProvider`, `ITelemetrySink`,
+`ILLMProvider`, `IMemoryStore`, `ISessionStore`, `IToolExecutor`) are **frozen** to
+prevent plugin-driven swaps. To upgrade the memory tier, build a fresh `Container()`
 and call `bind_sqlite_memory(container, path="memory.db")` on it before the
 default freezes apply — see `voussoir.container.defaults` for the canonical
 composition pattern. Every `Agent` requires an explicit `container=` argument;
 the framework refuses to construct one silently so configuration errors surface
 at startup, not buried inside `agent.run()`.
 
+**Authorization is fail-closed by default.** `default_container()` binds the
+`DenyByDefaultAuthorizer`, which denies every tool call until you bind a concrete
+grant. An agent that only chats (no tools) needs nothing extra; an agent that
+invokes tools must be granted access first. For development, bind the permissive
+`AllowAllAuthorizer`; for production, bind `RoleAuthorizer`, `DomainAuthorizer`, or
+a `ChainedAuthorizer` (see [Extending](extending.md)):
+
+```python
+from voussoir.auth import Authorizer, AllowAllAuthorizer
+container = default_container()
+container.bind(Authorizer, AllowAllAuthorizer())  # dev only — fail-open
+```
+
 `agent.run()` returns an `AgentResult[str]`. The `output` field holds the final
 text the model produced. `tokens_in` and `tokens_out` are the raw token counts
-from the LLM response. `cost_usd` is a coarse estimate derived from token counts.
+from the LLM response. `cost_usd` is estimated from a per-model price table
+(`voussoir.llm.pricing`), with a conservative fallback for unknown models.
 `finish_reason` is `"completed"` on a clean run; other values — `"max_steps"`,
 `"blocked"`, `"error"` — indicate the agent stopped early. Every run also emits
-OpenTelemetry spans automatically; connect an OTLP-compatible collector and you
-get distributed traces with no extra code.
+OpenTelemetry spans and metrics automatically; connect an OTLP-compatible
+collector (set `OTEL_EXPORTER_OTLP_ENDPOINT`) and you get distributed traces
+with no extra code.
 
 **Where to go next:** Add a Python function the agent can call as a tool.
 
@@ -78,6 +92,7 @@ before the tool body runs.
 # examples/02_research_agent/main.py
 import asyncio
 from voussoir import Agent
+from voussoir.auth import AllowAllAuthorizer, Authorizer
 from voussoir.container.defaults import default_container
 from voussoir.tools import Capability, tool
 
@@ -88,11 +103,15 @@ async def get_weather(city: str) -> str:
     return f"It is 72°F and sunny in {city}."
 
 async def main() -> None:
+    container = default_container()
+    # Authorization is fail-closed by default: grant tool access explicitly.
+    container.bind(Authorizer, AllowAllAuthorizer())  # dev only
+
     agent = Agent(
         name="weather-assistant",
         instructions="You are a helpful weather assistant. Use get_weather to answer questions.",
         tools=[get_weather],
-        container=default_container(),
+        container=container,
     )
     result = await agent.run("What is the weather in Tokyo?")
     print(result.output)
@@ -104,8 +123,8 @@ asyncio.run(main())
 `@tool` generates a Pydantic input schema from the function's type annotations, so
 `city: str` becomes a required string field — the LLM cannot pass an integer or
 omit the argument without triggering a validation error. The `capability` tag maps
-to voussoir's `Capability` enum (`READ_PUBLIC`, `READ_PRIVATE`, `WRITE`, `EXECUTE`,
-etc.). Before each tool invocation the `StandardExecutor` checks the tag against
+to voussoir's `Capability` enum (`READ_PUBLIC`, `READ_PRIVATE`, `WRITE_PRIVATE`,
+`EXFILTRATION`). Before each tool invocation the `StandardExecutor` checks the tag against
 the agent's `allowed_capabilities` mask; if the capability is not in the mask, the
 tool call is rejected without reaching the function body. This makes capability
 enforcement deterministic and auditable — no prompt engineering required.
@@ -132,10 +151,12 @@ permissions its parent holds.
 # examples/03_multi_agent_research/main.py
 import asyncio
 from voussoir import Agent
+from voussoir.auth import AllowAllAuthorizer, Authorizer
 from voussoir.container.defaults import default_container
 
 async def main() -> None:
     container = default_container()
+    container.bind(Authorizer, AllowAllAuthorizer())  # dev only; grants delegate-tool access
 
     researcher = Agent(
         name="researcher",
@@ -322,10 +343,12 @@ if __name__ == "__main__":
 # examples/04_a2a_peer/caller.py
 import asyncio
 from voussoir import Agent, AgentRef
+from voussoir.auth import AllowAllAuthorizer, Authorizer
 from voussoir.container.defaults import default_container
 
 async def main() -> None:
     c = default_container()
+    c.bind(Authorizer, AllowAllAuthorizer())  # dev only; grants delegate-tool access
 
     # Fetch the remote agent's card and wrap it as a delegate.
     ref = await AgentRef.discover("http://127.0.0.1:8765")
@@ -359,22 +382,27 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-!!! note "JWT shared secret"
-    Before running either script, export a shared JWT secret so the publisher and
-    caller can authenticate each other:
+!!! note "JWT shared secret + issuer allow-list"
+    Before running either script, export a shared JWT secret and an inbound issuer
+    allow-list so the publisher and caller can authenticate each other:
 
     ```bash
     export VOUSSOIR_A2A_JWT_SECRET=$(python -c \
       "import base64, secrets; print(base64.b64encode(secrets.token_bytes(32)).decode())")
+    export VOUSSOIR_A2A_ALLOWED_ISSUERS=lead
     ```
 
-    Set the same value in both terminals. The publisher's `serve_a2a` reads it from
-    the environment; the caller's `AgentRef` signs outbound requests with it.
+    Set the same secret in both terminals. The publisher's `serve_a2a` reads the
+    secret from the environment and rejects inbound JWTs whose `iss` claim is not
+    in `VOUSSOIR_A2A_ALLOWED_ISSUERS` (empty list = default-deny); the caller's
+    `AgentRef` signs outbound requests with the shared secret and its agent name
+    as the issuer.
 
-`serve_a2a` builds a FastAPI app with three routes: `GET
+`serve_a2a` builds a FastAPI app with four routes: `GET
 /.well-known/agent-card.json` (the agent's machine-readable identity card), `GET
-/.well-known/jwks.json` (the publisher's signing keys), and `POST /a2a` (the
-JSON-RPC invocation endpoint). All three are wired by `make_a2a_router`, which
+/.well-known/jwks.json` (the publisher's signing keys), `POST /a2a` (the
+JSON-RPC invocation endpoint), and `GET /.well-known/health` (a liveness probe).
+All four are wired by `make_a2a_router`, which
 `serve_a2a` calls internally. If you already have a FastAPI app, call
 `make_a2a_router` directly and mount the returned `APIRouter` yourself.
 

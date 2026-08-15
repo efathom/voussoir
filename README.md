@@ -88,7 +88,7 @@ pip install 'voussoir[all]@git+https://github.com/efathom/voussoir@v1.3.0'   # e
 
 - **[Getting Started](docs/getting-started.md)** — 5 progressively-deeper examples
 - **[Extending](docs/extending.md)** — 7 how-to recipes for the public Protocols
-- **[Architecture](docs/architecture.md)** — framework design for v1.0
+- **[Architecture](docs/architecture.md)** — framework design
 - **[API Reference](docs/api/voussoir.md)** — auto-generated from source
 
 Build the docs locally:
@@ -113,7 +113,7 @@ src/voussoir/        — library code
 docs/                — public docs (mkdocs-material)
 docs/superpowers/    — internal specs and plans (not shipped)
 examples/            — runnable demos
-tests/               — pytest suite (~950 tests as of v1.0.1)
+tests/               — pytest suite (~1080 tests as of v1.3.0)
 ```
 
 ## Status
