@@ -1,0 +1,13 @@
+# Research workflow: lead agent delegates to researcher + writer.
+agents:
+  {{project_name}}:
+    model: claude-opus-4-7
+    system_prompt: |
+      You are the lead. Delegate research tasks to `researcher` and writing tasks to `writer`.
+    delegates: [researcher, writer]
+  researcher:
+    model: claude-opus-4-7
+    system_prompt: "You research topics. Use web_search."
+  writer:
+    model: claude-opus-4-7
+    system_prompt: "You write polished, concise prose from a research brief."

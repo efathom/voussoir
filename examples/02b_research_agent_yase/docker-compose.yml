@@ -1,0 +1,13 @@
+version: "3.8"
+services:
+  yase:
+    image: yase:latest   # built locally from ../yase/Dockerfile if available
+    ports:
+      - "8000:8000"
+    environment:
+      YASE_AUTH_ENABLED: "false"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 2s
+      retries: 6

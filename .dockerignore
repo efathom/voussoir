@@ -1,0 +1,38 @@
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments & build tooling caches
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# SCM
+.git/
+.gitignore
+
+# Docs build output (site/ is large; not needed in the image)
+site/
+docs/
+
+# Tests and examples are not shipped in the image
+tests/
+examples/
+
+# Distribution artifacts
+build/
+dist/
+*.egg-info/
+
+# Local data / secrets
+.env
+.env.*
+*.db
+*.sqlite
+*.sqlite3
+uv.lock.bak

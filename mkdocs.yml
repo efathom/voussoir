@@ -1,0 +1,59 @@
+site_name: voussoir
+site_description: Default-runnable LLM agent framework
+site_url: https://example.com/voussoir/   # placeholder; ReadTheDocs deferred to v1.0.1
+
+repo_url: https://github.com/your-org/voussoir
+edit_uri: edit/main/docs/
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Extending: extending.md
+  - Architecture: architecture.md
+  - API Reference:
+      - voussoir: api/voussoir.md
+      - agent: api/voussoir.agent.md
+      - auth: api/voussoir.auth.md
+      - guardrails: api/voussoir.guardrails.md
+      - tools: api/voussoir.tools.md
+      - a2a: api/voussoir.a2a.md
+      - observability: api/voussoir.observability.md
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - content.code.copy
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths:
+            - src
+          options:
+            show_signature_annotations: true
+            members_order: source
+            show_if_no_docstring: true
+
+# Pages that exist in docs/ but are intentionally excluded from the nav
+# (e.g. internal audit reports). Listing them here suppresses the strict-mode
+# warning without adding them to the published nav.
+not_in_nav: |
+  audits/*
+
+# Treat warnings as errors for CI.
+strict: true
+
+# Markdown extensions
+markdown_extensions:
+  - admonition
+  - attr_list
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true

@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      # voussoir depends on the sibling ctxforge repo (editable path source in
+      # [tool.uv.sources]). Check out ctxforge next to voussoir so `uv sync`
+      # can resolve it. Pin to a known-good commit; bump when ctxforge changes
+      # its public Protocols.
+      - name: Checkout ctxforge (sibling dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: efathom/ctxforge
+          ref: 59779203e054f8744c9f5a763acb93e74c3254a3
+          path: ../ctxforge
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Install dependencies
+        # mem-sqlite (sentence-transformers/torch) is deliberately excluded to
+        # keep CI fast; the affected tests skip gracefully via importorskip.
+        run: uv sync --extra dev --extra a2a --extra mcp
+
+      - name: Test
+        run: uv run pytest -q --tb=short
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout ctxforge (sibling dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: efathom/ctxforge
+          ref: 59779203e054f8744c9f5a763acb93e74c3254a3
+          path: ../ctxforge
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --extra dev --extra a2a --extra mcp
+      - name: Ruff
+        run: uv run ruff check src tests
+      - name: Format check
+        run: uv run black --check src tests
+      - name: Type check (mypy)
+        run: uv run mypy src/voussoir
