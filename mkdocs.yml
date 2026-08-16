@@ -1,8 +1,8 @@
 site_name: voussoir
-site_description: Default-runnable LLM agent framework
-site_url: https://example.com/voussoir/   # placeholder; ReadTheDocs deferred to v1.0.1
+site_description: Default-runnable, secure-by-default LLM agent framework
+site_url: https://efathom.github.io/voussoir/
 
-repo_url: https://github.com/your-org/voussoir
+repo_url: https://github.com/efathom/voussoir
 edit_uri: edit/main/docs/
 
 nav:

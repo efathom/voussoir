@@ -14,13 +14,15 @@ def test_doctor_reports_python_version(monkeypatch: object) -> None:
 
 
 def test_doctor_reports_api_key_status(monkeypatch: object) -> None:
-    """Both ANTHROPIC_API_KEY and OPENAI_API_KEY status appears in output."""
+    """All three provider key statuses appear in output."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)  # type: ignore[attr-defined]
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)  # type: ignore[attr-defined]
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)  # type: ignore[attr-defined]
     runner = CliRunner()
     result = runner.invoke(main, ["doctor"])
     assert "ANTHROPIC_API_KEY" in result.output
     assert "OPENAI_API_KEY" in result.output
+    assert "OPENROUTER_API_KEY" in result.output
 
 
 def test_doctor_reports_ctxforge_status(monkeypatch: object) -> None:
@@ -48,6 +50,7 @@ def test_doctor_exit_nonzero_when_no_api_key(monkeypatch: object) -> None:
     """No API key at all → exit 1 (one of them is required)."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)  # type: ignore[attr-defined]
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)  # type: ignore[attr-defined]
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)  # type: ignore[attr-defined]
     runner = CliRunner()
     result = runner.invoke(main, ["doctor"])
     assert result.exit_code != 0
