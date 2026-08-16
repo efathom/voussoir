@@ -1,6 +1,6 @@
 """JSON Schema → Pydantic model generation for MCP tool inputs.
 
-MCP servers emit each tool's `inputSchema` as a JSON Schema dict. To plug
+MCP servers emit each tool's `input_schema` as a JSON Schema dict. To plug
 into voussoir's Tool Protocol (which uses a Pydantic input_schema class),
 we synthesize a Pydantic model class at runtime.
 
