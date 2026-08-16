@@ -66,17 +66,21 @@ _DUMMY_API_KEY = "sk-ant-test-only"
 
 @pytest.fixture(autouse=True)
 def _ensure_llm_key(monkeypatch):  # type: ignore[no-untyped-def]
-    """Provide a dummy ANTHROPIC_API_KEY when neither provider key is set.
+    """Provide a dummy ANTHROPIC_API_KEY when no provider key is set.
 
     `default_container()` raises RuntimeError when no LLM key is present, so any
     test that constructs a default container needs a key. Setting a dummy here
     (only when the environment is otherwise clean) keeps the suite runnable
-    without secrets. Tests that assert "raises when no key" delete both keys
+    without secrets. Tests that assert "raises when no key" delete the keys
     themselves, which wins because this fixture runs first.
     """
     import os
 
-    if not os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("OPENAI_API_KEY"):
+    if (
+        not os.environ.get("ANTHROPIC_API_KEY")
+        and not os.environ.get("OPENAI_API_KEY")
+        and not os.environ.get("OPENROUTER_API_KEY")
+    ):
         monkeypatch.setenv("ANTHROPIC_API_KEY", _DUMMY_API_KEY)
 
 

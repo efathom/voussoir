@@ -9,7 +9,7 @@ tool-result messages.
 The adapter is selected once per run via ``llm.name``. Not exposed
 publicly because per-provider quirks are an implementation detail; not
 in ``voussoir.agent.__all__``. F5 ships ``AnthropicToolCalls``; F6 adds
-``OpenAIToolCalls``.
+``OpenAIToolCalls`` (also used by OpenRouter, which is OpenAI-compatible).
 """
 
 from __future__ import annotations
@@ -115,7 +115,9 @@ class OpenAIToolCalls:
     """OpenAI shape: function-wrapped tools, JSON-string arguments, tool_call_id result.
 
     Use this when voussoir runs against an OpenAI-compatible provider
-    (gpt-4, gpt-5, etc.). The wire shape diverges from Anthropic in
+    (gpt-4, gpt-5, etc.). OpenRouter (`ctxforge.llm.openrouter_provider`)
+    speaks this same wire shape, so ``adapter_for`` routes its ``name ==
+    "openrouter"`` here too. The wire shape diverges from Anthropic in
     three places: tool schemas are wrapped in a ``{type, function}``
     envelope, ``tool_calls`` live under
     ``choices[0].message.tool_calls``, and ``arguments`` arrive as a
@@ -208,16 +210,17 @@ class OpenAIToolCalls:
 def adapter_for(llm: Any) -> ToolCallAdapter:
     """Select the per-provider tool-calling adapter based on ``llm.name``.
 
-    Dispatches on ``llm.name``. v1.1.0 ships Anthropic + OpenAI; unsupported
-    providers raise a clear ``NotImplementedError`` naming the unknown value
-    and listing supported options.
+    Dispatches on ``llm.name``. v1.1.0 ships Anthropic + OpenAI; OpenRouter
+    reuses the OpenAI-compatible adapter. Unsupported providers raise a
+    clear ``NotImplementedError`` naming the unknown value and listing
+    supported options.
     """
     provider_name = getattr(llm, "name", "")
     if provider_name == "anthropic":
         return AnthropicToolCalls()
-    if provider_name == "openai":
+    if provider_name in ("openai", "openrouter"):
         return OpenAIToolCalls()
     raise NotImplementedError(
         f"Tool-calling adapter for LLM {provider_name!r} not yet shipped; "
-        f"supported providers: anthropic, openai"
+        f"supported providers: anthropic, openai, openrouter"
     )

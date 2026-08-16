@@ -85,9 +85,11 @@ the `ToolExecutor` Protocol, resolved by the container.
 ### Default container
 
 `default_container()` returns a pre-bound container that makes the five-line demo
-work: Anthropic provider (if `ANTHROPIC_API_KEY` is set, else OpenAI), in-memory
-store, default guardrail chain (profile "off" — args schema check only), console
-OTel exporter, and `StandardExecutor`. Every binding is overridable.
+work: Anthropic provider (if `ANTHROPIC_API_KEY` is set), else OpenAI (if
+`OPENAI_API_KEY` is set), else OpenRouter (if `OPENROUTER_API_KEY` is set),
+in-memory store, default guardrail chain (profile "off" — args schema check
+only), console OTel exporter, and `StandardExecutor`. Every binding is
+overridable.
 
 ### Protocols for extension
 

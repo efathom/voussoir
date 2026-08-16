@@ -34,9 +34,42 @@ def test_default_container_picks_openai_when_only_openai_key_present(monkeypatch
     assert ILLMProvider in binding_keys
 
 
+def test_default_container_picks_openrouter_when_only_openrouter_key_present(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-test")
+    from ctxforge.protocols.llm import ILLMProvider
+
+    c = default_container()
+    binding_keys = [p for (p, _) in c.list_bindings()]
+    assert ILLMProvider in binding_keys
+
+
+def test_default_container_openrouter_binds_ctxforge_provider(monkeypatch):
+    """OPENROUTER_API_KEY wires ctxforge's OpenAI-compatible OpenRouter provider.
+
+    The bound factory must produce an OpenRouterLLMProvider (not the plain
+    OpenAI provider) so attribution headers + the OpenRouter base URL apply.
+    """
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-test")
+    monkeypatch.setenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4")
+    monkeypatch.setenv("OPENROUTER_HTTP_REFERER", "https://example.com")
+    from ctxforge.protocols.llm import ILLMProvider
+
+    c = default_container()
+    impl = c.resolve(ILLMProvider)
+    assert type(impl).__name__ == "OpenRouterLLMProvider"
+    assert impl.name == "openrouter"
+    assert impl.default_model == "anthropic/claude-sonnet-4"
+    assert impl._config.http_referer == "https://example.com"
+
+
 def test_default_container_raises_when_no_keys(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="No LLM API key"):
         default_container()
 

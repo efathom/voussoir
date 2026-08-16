@@ -84,6 +84,13 @@ def test_adapter_for_openai() -> None:
     assert isinstance(adapter_for(llm), OpenAIToolCalls)
 
 
+def test_adapter_for_openrouter_reuses_openai_adapter() -> None:
+    """OpenRouter is OpenAI-compatible, so it shares the OpenAI tool-calling shape."""
+    llm = MagicMock()
+    llm.name = "openrouter"
+    assert isinstance(adapter_for(llm), OpenAIToolCalls)
+
+
 def test_adapter_for_unknown_provider_raises() -> None:
     llm = MagicMock()
     llm.name = "cohere"
@@ -91,6 +98,7 @@ def test_adapter_for_unknown_provider_raises() -> None:
         adapter_for(llm)
     msg = str(excinfo.value)
     assert "cohere" in msg
-    # Both supported providers should be named in the message
+    # All supported providers should be named in the message
     assert "anthropic" in msg.lower()
     assert "openai" in msg.lower()
+    assert "openrouter" in msg.lower()

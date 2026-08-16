@@ -35,7 +35,8 @@ def default_container() -> Container:
     The defaults populate (lazily where possible):
     - OpenTelemetry (TracerProvider + MeterProvider; no-op when disabled)
     - logging (JSON in prod via VOUSSOIR_LOG_FORMAT, otherwise dev)
-    - LLM provider (Anthropic if ANTHROPIC_API_KEY else OpenAI if OPENAI_API_KEY)
+    - LLM provider (Anthropic if ANTHROPIC_API_KEY else OpenAI if OPENAI_API_KEY
+      else OpenRouter if OPENROUTER_API_KEY)
     - in-memory MemoryStore
     - in-memory SessionStore
     - fail-closed Authorizer (DenyByDefaultAuthorizer — tool calls deny until granted)
@@ -180,10 +181,33 @@ def _bind_llm_provider(c: Container) -> None:
             return OpenAILLMProvider(OpenAIConfig(api_key=os.environ["OPENAI_API_KEY"]))
 
         c.bind(ILLMProvider, _make_openai)
+    elif os.environ.get("OPENROUTER_API_KEY"):
+        # OpenRouter exposes an OpenAI-compatible API, so ctxforge's provider
+        # subclasses OpenAILLMProvider and only swaps the base URL (+ optional
+        # attribution headers). No embeddings endpoint is offered, so
+        # `_bind_default_embedder` still falls back to a local/fake embedder.
+        def _make_openrouter() -> ILLMProvider:
+            from ctxforge.llm.openrouter_provider import (
+                OPENROUTER_BASE_URL,
+                OpenRouterConfig,
+                OpenRouterLLMProvider,
+            )
+
+            return OpenRouterLLMProvider(
+                OpenRouterConfig(
+                    api_key=os.environ["OPENROUTER_API_KEY"],
+                    model=os.environ.get("OPENROUTER_MODEL") or "openai/gpt-4o-mini",
+                    base_url=os.environ.get("OPENROUTER_BASE_URL") or OPENROUTER_BASE_URL,
+                    http_referer=os.environ.get("OPENROUTER_HTTP_REFERER"),
+                    site_title=os.environ.get("OPENROUTER_SITE_TITLE"),
+                )
+            )
+
+        c.bind(ILLMProvider, _make_openrouter)
     else:
         raise RuntimeError(
-            "No LLM API key found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY, "
-            "or bind a custom ILLMProvider via Container.bind()."
+            "No LLM API key found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or "
+            "OPENROUTER_API_KEY, or bind a custom ILLMProvider via Container.bind()."
         )
 
 
