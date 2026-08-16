@@ -21,7 +21,7 @@ async def test_client_call_tool_round_trips():
         result = await session.call_tool("echo", {"text": "hi"})
         assert result.content[0].type == "text"
         assert "echoed: hi" in result.content[0].text
-        assert result.isError is False
+        assert result.is_error is False
 
 
 async def test_connect_http_initializes_session_with_url_and_headers():
@@ -34,7 +34,7 @@ async def test_connect_http_initializes_session_with_url_and_headers():
     fake_session.__aexit__ = AsyncMock(return_value=False)
 
     fake_transport_cm = MagicMock()
-    fake_transport_cm.__aenter__ = AsyncMock(return_value=(MagicMock(), MagicMock(), MagicMock()))
+    fake_transport_cm.__aenter__ = AsyncMock(return_value=(MagicMock(), MagicMock()))
     fake_transport_cm.__aexit__ = AsyncMock(return_value=False)
 
     fake_http_client = MagicMock()
@@ -43,7 +43,7 @@ async def test_connect_http_initializes_session_with_url_and_headers():
 
     with (
         patch(
-            "voussoir.mcp.client.httpx.AsyncClient",
+            "voussoir.mcp.client.httpx2.AsyncClient",
             return_value=fake_http_client,
         ) as mock_http_client_cls,
         patch(

@@ -55,7 +55,7 @@ voussoir = "voussoir.cli.main:main"
 
 [project.optional-dependencies]
 # Note: `httpx` is in base deps; not re-listed in extras that need it.
-mcp           = ["mcp>=2.0.0"]
+mcp           = ["mcp>=2.0.0", "httpx2>=2.5.0"]
 a2a           = ["fastapi>=0.141.1", "uvicorn>=0.52.1"]
 mem-sqlite    = ["sentence-transformers>=5.7.0", "sqlite-vec>=0.1.9"]
 mem-postgres  = ["psycopg[binary]>=3.3.4"]
@@ -81,7 +81,7 @@ dev = [
   "ruff>=0.16.2",
   # Pin black exactly to match .pre-commit-config.yaml so local and CI
   # formatting agree (newer black majors change layout rules and cause churn).
-  "black==26.5.1",
+  "black==24.4.2",
   "mypy>=2.3.0",
   "pre-commit>=4.6.2",
   # Phase 6 C1: docs toolchain

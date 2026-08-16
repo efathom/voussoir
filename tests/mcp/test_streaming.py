@@ -32,7 +32,7 @@ async def test_run_with_progress_invokes_callback_on_each_progress():
             await progress_callback(0.25, 1.0, "starting")
             await progress_callback(0.75, 1.0, "almost there")
         result = MagicMock()
-        result.isError = False
+        result.is_error = False
         result.content = [MagicMock(type="text", text="done")]
         return result
 

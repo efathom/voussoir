@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-import httpx
+import httpx2
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
@@ -51,13 +51,13 @@ class MCPClient:
     ) -> AsyncIterator[ClientSession]:
         """Connect to a remote MCP server over streamable HTTP.
 
-        Headers are translated into an httpx.AsyncClient that we own;
+        Headers are translated into an httpx2.AsyncClient that we own;
         the underlying SDK takes the client via http_client= and we
         clean it up on exit.
         """
         async with (
-            httpx.AsyncClient(headers=headers) as http_client,
-            streamable_http_client(url, http_client=http_client) as (read, write, _get_session_id),
+            httpx2.AsyncClient(headers=headers) as http_client,
+            streamable_http_client(url, http_client=http_client) as (read, write),
             ClientSession(read, write) as session,
         ):
             await session.initialize()

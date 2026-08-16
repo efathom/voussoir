@@ -66,7 +66,7 @@ async def run_with_progress(
         )
 
     result = await session.call_tool(tool_name, arguments=arguments, progress_callback=_cb)
-    if result.isError:
+    if result.is_error:
         raise RuntimeError(f"MCP tool {tool_name} failed")
     # The Union (TextContent | ImageContent | AudioContent | ResourceLink |
     # EmbeddedResource) only has `.text` on TextContent — narrow with getattr

@@ -30,7 +30,7 @@ from __future__ import annotations
 from typing import Any
 
 from anyio import BrokenResourceError, ClosedResourceError, EndOfStream
-from mcp import ClientSession
+from mcp import ClientSession, MCPError, types
 from pydantic import BaseModel
 
 from voussoir.guardrails.builtin.injection import find_injection_pattern
@@ -120,7 +120,7 @@ class MCPTool:
         for descriptor in listing.tools:
             input_model = jsonschema_to_pydantic(
                 f"{server_name}_{descriptor.name}",
-                descriptor.inputSchema,
+                descriptor.input_schema,
             )
             out.append(
                 cls(
@@ -159,14 +159,19 @@ class MCPTool:
                 self._remote_name,
                 arguments=args.model_dump(),
             )
-        except (ClosedResourceError, BrokenResourceError, EndOfStream) as exc:
+        except (ClosedResourceError, BrokenResourceError, EndOfStream, MCPError) as exc:
+            # v2 SDK reports a closed session as MCPError(code=CONNECTION_CLOSED)
+            # instead of the v1 anyio resource errors. Translate both into a
+            # clear error; any other MCPError (a live protocol error) re-raises.
+            if isinstance(exc, MCPError) and exc.code != types.CONNECTION_CLOSED:
+                raise
             raise RuntimeError(
                 f"MCP tool {self.name!r} cannot be invoked: the underlying "
                 "ClientSession is closed. The session is owned by the "
                 "MCPClient.connect_*(...) async context manager — keep it "
                 "open while using tools derived from it."
             ) from exc
-        if result.isError:
+        if result.is_error:
             text = _content_to_text(result.content) or "MCP tool returned error"
             raise RuntimeError(f"MCP tool {self.name} failed: {text}")
         return _content_to_text(result.content)
