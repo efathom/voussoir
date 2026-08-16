@@ -117,10 +117,45 @@ def test_validate_missing_api_key_warns(tmp_path: Path, monkeypatch: object) -> 
     monkeypatch.chdir(tmp_path)  # type: ignore[attr-defined]
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)  # type: ignore[attr-defined]
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)  # type: ignore[attr-defined]
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)  # type: ignore[attr-defined]
     runner = CliRunner()
     result = runner.invoke(main, ["validate"])
     # Either exit nonzero or print a warning; either way mention the key name
     assert "ANTHROPIC_API_KEY" in result.output
+
+
+def test_validate_openrouter_model_requires_openrouter_key(
+    tmp_path: Path, monkeypatch: object
+) -> None:
+    """An OpenRouter slug (vendor/model) without OPENROUTER_API_KEY should warn."""
+    yaml_path = tmp_path / "voussoir.yaml"
+    _write_yaml(
+        yaml_path,
+        "agents:\n  x:\n    model: openai/gpt-4o-mini\n    system_prompt: 'hi'\n",
+    )
+    monkeypatch.chdir(tmp_path)  # type: ignore[attr-defined]
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)  # type: ignore[attr-defined]
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)  # type: ignore[attr-defined]
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)  # type: ignore[attr-defined]
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate"])
+    assert "OPENROUTER_API_KEY" in result.output
+
+
+def test_validate_openrouter_model_passes_with_key(tmp_path: Path, monkeypatch: object) -> None:
+    """An OpenRouter slug with OPENROUTER_API_KEY set should pass the key check."""
+    yaml_path = tmp_path / "voussoir.yaml"
+    _write_yaml(
+        yaml_path,
+        "agents:\n  x:\n    model: anthropic/claude-sonnet-4\n    system_prompt: 'hi'\n",
+    )
+    monkeypatch.chdir(tmp_path)  # type: ignore[attr-defined]
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)  # type: ignore[attr-defined]
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)  # type: ignore[attr-defined]
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-test")  # type: ignore[attr-defined]
+    runner = CliRunner()
+    result = runner.invoke(main, ["validate"])
+    assert result.exit_code == 0, f"validate failed: {result.output}"
 
 
 def test_validate_explicit_config_path(tmp_path: Path, monkeypatch: object) -> None:

@@ -27,13 +27,13 @@ async def main():
 asyncio.run(main())
 ```
 
-Set `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) and run. That's it.
+Set `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY` and run. That's it.
 
 > `default_container()` wires the LLM provider (from your `ANTHROPIC_API_KEY` /
-> `OPENAI_API_KEY` env), default memory + session stores, the fail-closed
-> `DenyByDefaultAuthorizer` (bind a concrete authorizer to grant tool access),
-> the `standard` guardrail chain, and a no-op telemetry sink. For explicit
-> control over bindings, construct a bare `Container()` and
+> `OPENAI_API_KEY` / `OPENROUTER_API_KEY` env), default memory + session stores,
+> the fail-closed `DenyByDefaultAuthorizer` (bind a concrete authorizer to grant
+> tool access), the `standard` guardrail chain, and a no-op telemetry sink. For
+> explicit control over bindings, construct a bare `Container()` and
 > `container.bind(Protocol, impl)` yourself.
 
 ## Install

@@ -5,9 +5,9 @@ chatting back at you to a multi-agent peer-protocol setup. Each example is a
 complete, runnable script; the `examples/` directory in the repo has each one
 ready to `python main.py`.
 
-Before you start, set `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) in your
-environment. That is the only required setup — voussoir does not need config
-files or service registration.
+Before you start, set `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or
+`OPENROUTER_API_KEY` in your environment. That is the only required setup —
+voussoir does not need config files or service registration.
 
 ```bash
 pip install voussoir
@@ -45,7 +45,8 @@ asyncio.run(main())
 
 `default_container()` wires all framework defaults in one call: it detects your
 API key, binds the matching LLM provider (Anthropic when `ANTHROPIC_API_KEY` is
-set, OpenAI otherwise), and registers an in-memory session and memory store.
+set, OpenAI when `OPENAI_API_KEY` is set, OpenRouter when `OPENROUTER_API_KEY`
+is set), and registers an in-memory session and memory store.
 Seven security-critical bindings (`Authorizer`, `KeyProvider`, `ITelemetrySink`,
 `ILLMProvider`, `IMemoryStore`, `ISessionStore`, `IToolExecutor`) are **frozen** to
 prevent plugin-driven swaps. To upgrade the memory tier, build a fresh `Container()`
