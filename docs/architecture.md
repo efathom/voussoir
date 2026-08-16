@@ -85,9 +85,11 @@ the `ToolExecutor` Protocol, resolved by the container.
 ### Default container
 
 `default_container()` returns a pre-bound container that makes the five-line demo
-work: Anthropic provider (if `ANTHROPIC_API_KEY` is set, else OpenAI), in-memory
-store, default guardrail chain (profile "off" — args schema check only), console
-OTel exporter, and `StandardExecutor`. Every binding is overridable.
+work: Anthropic provider (if `ANTHROPIC_API_KEY` is set), else OpenAI (if
+`OPENAI_API_KEY` is set), else OpenRouter (if `OPENROUTER_API_KEY` is set),
+in-memory store, default guardrail chain (profile "off" — args schema check
+only), console OTel exporter, and `StandardExecutor`. Every binding is
+overridable.
 
 ### Protocols for extension
 
@@ -747,13 +749,13 @@ Any class satisfying `Validator` can be passed as the `verifier` in
 
 ### v1.x roadmap (incremental)
 
-- **PyPI publish + ctxforge release** (v1.0.1). v1.0.0 is a git tag; pip install
-  from git is the current install path. PyPI and ctxforge dependency resolution
-  land in v1.0.1.
-- **Public docs hosting** (v1.0.1). ReadTheDocs / GitHub Pages hosting deferred
-  from v1.0.0.
-- **Cost/perf benchmarks vs LangGraph/CrewAI** (v1.0.1). Preliminary benchmarks
-  pending; will be published at v1.0.1.
+- **PyPI publish + ctxforge release.** Shipping both `voussoir` and its sibling
+  `ctxforge` dependency to PyPI so `pip install voussoir` works without a sibling
+  checkout. Until then, install from git, or clone `ctxforge` next to `voussoir`
+  (the CI workflow and Dockerfile already pin a known-good `ctxforge` commit).
+- **Public docs hosting.** ReadTheDocs / GitHub Pages. Docs build locally today:
+  `make docs-build && make docs-serve`.
+- **Cost/perf benchmarks vs LangGraph/CrewAI.** Preliminary benchmarks pending.
 - **OPA + Masking authorizers** (v1.x). `OPAAuthorizer` bridges to an Open Policy
   Agent server for policy-as-code authorization. `MaskingAuthorizer` adds
   column-level field redaction based on declared schema sensitivity. Both deferred

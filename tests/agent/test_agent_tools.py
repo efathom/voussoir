@@ -230,7 +230,7 @@ async def test_agent_max_steps_short_circuits():
 
 async def test_agent_with_tools_and_unsupported_provider_raises_clear_error():
     """F7: adapter_for raises a clear NotImplementedError for providers not yet
-    supported. The error names the failing provider and lists both supported ones.
+    supported. The error names the failing provider and lists supported ones.
     """
     p = MagicMock(spec=ILLMProvider)
     p.name = "cohere"
@@ -247,6 +247,7 @@ async def test_agent_with_tools_and_unsupported_provider_raises_clear_error():
     assert "cohere" in msg
     assert "anthropic" in msg
     assert "openai" in msg
+    assert "openrouter" in msg
 
 
 async def test_agent_without_tools_works_on_non_anthropic_provider():

@@ -1,7 +1,5 @@
 # voussoir
 
-> Default-runnable LLM agent framework. Security as Lego, not lectures.
-
 voussoir is a Python framework for building LLM agents that work securely out of the
 box — no configuration ceremony required. You get a `Container` that holds your tools,
 credentials, and guardrails, and an `Agent` that runs against it. Security is structural:
@@ -29,13 +27,13 @@ async def main():
 asyncio.run(main())
 ```
 
-Set `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) and run. That's it.
+Set `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY` and run. That's it.
 
 > `default_container()` wires the LLM provider (from your `ANTHROPIC_API_KEY` /
-> `OPENAI_API_KEY` env), default memory + session stores, the fail-closed
-> `DenyByDefaultAuthorizer` (bind a concrete authorizer to grant tool access),
-> the `standard` guardrail chain, and a no-op telemetry sink. For explicit
-> control over bindings, construct a bare `Container()` and
+> `OPENAI_API_KEY` / `OPENROUTER_API_KEY` env), default memory + session stores,
+> the fail-closed `DenyByDefaultAuthorizer` (bind a concrete authorizer to grant
+> tool access), the `standard` guardrail chain, and a no-op telemetry sink. For
+> explicit control over bindings, construct a bare `Container()` and
 > `container.bind(Protocol, impl)` yourself.
 
 ## Install
@@ -90,7 +88,7 @@ pip install 'voussoir[all]@git+https://github.com/efathom/voussoir@v1.3.0'   # e
 
 - **[Getting Started](docs/getting-started.md)** — 5 progressively-deeper examples
 - **[Extending](docs/extending.md)** — 7 how-to recipes for the public Protocols
-- **[Architecture](docs/architecture.md)** — framework design for v1.0
+- **[Architecture](docs/architecture.md)** — framework design
 - **[API Reference](docs/api/voussoir.md)** — auto-generated from source
 
 Build the docs locally:
@@ -115,7 +113,7 @@ src/voussoir/        — library code
 docs/                — public docs (mkdocs-material)
 docs/superpowers/    — internal specs and plans (not shipped)
 examples/            — runnable demos
-tests/               — pytest suite (~950 tests as of v1.0.1)
+tests/               — pytest suite (~1080 tests as of v1.3.0)
 ```
 
 ## Status

@@ -63,6 +63,10 @@ def _model_needs_key(model: str) -> str | None:
     for prefix, key in _MODEL_PREFIX_KEY:
         if m.startswith(prefix):
             return key
+    # OpenRouter model slugs are "vendor/model" (e.g. "openai/gpt-4o-mini",
+    # "anthropic/claude-sonnet-4"); native provider models never contain "/".
+    if "/" in m:
+        return "OPENROUTER_API_KEY"
     return None
 
 

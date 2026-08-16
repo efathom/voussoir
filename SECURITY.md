@@ -56,8 +56,8 @@ voussoir's security posture is structural, not opt-in:
 ## Security best practices for deployments
 
 - **Never commit real credentials** — use environment variables or a secret
-  manager for `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`, the A2A JWT secret, and
-  database passwords.
+  manager for `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY`,
+  the A2A JWT secret, and database passwords.
 - **Set `VOUSSOIR_A2A_JWT_SECRET` and `VOUSSOIR_A2A_ALLOWED_ISSUERS`** for any
   A2A peer deployment. Empty issuer allow-list is default-deny.
 - **Bind a concrete `Authorizer`** (Role / Domain / Chained) before exposing

@@ -53,9 +53,15 @@ def doctor() -> None:
     # --- Required: at least one LLM API key --------------------------------
     has_anthropic = bool(os.environ.get("ANTHROPIC_API_KEY"))
     has_openai = bool(os.environ.get("OPENAI_API_KEY"))
+    has_openrouter = bool(os.environ.get("OPENROUTER_API_KEY"))
     _check("ANTHROPIC_API_KEY set", ok=has_anthropic, hint="export ANTHROPIC_API_KEY=sk-ant-...")
     _check("OPENAI_API_KEY set", ok=has_openai, hint="export OPENAI_API_KEY=sk-...")
-    if not (has_anthropic or has_openai):
+    _check(
+        "OPENROUTER_API_KEY set",
+        ok=has_openrouter,
+        hint="export OPENROUTER_API_KEY=sk-or-v1-...",
+    )
+    if not (has_anthropic or has_openai or has_openrouter):
         failed += 1
 
     # --- Required: core framework deps -------------------------------------
