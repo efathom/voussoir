@@ -17,7 +17,7 @@ jobs:
       matrix:
         python-version: ["3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # voussoir depends on the sibling ctxforge repo (editable path source in
       # [tool.uv.sources]: path = "../ctxforge"). actions/checkout refuses to
@@ -49,7 +49,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Checkout ctxforge (sibling dependency)
         run: |
           git init ../ctxforge
