@@ -8,13 +8,53 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import os
 
-from voussoir import Agent
-from voussoir.container.defaults import default_container
+from ctxforge.llm.openrouter_provider import (
+    OPENROUTER_BASE_URL,
+    OpenRouterConfig,
+    OpenRouterLLMProvider,
+)
+
+from voussoir import Agent, Container
+from voussoir.a2a.keys import EnvKeyProvider, KeyProvider
+from voussoir.auth.authorizers.allow_all import AllowAllAuthorizer
+from voussoir.auth.protocol import Authorizer
+from voussoir.executors import IToolExecutor, StandardExecutor
+from voussoir.guardrails import DefaultGuardrailChain, IGuardrailChain
+from voussoir.llm.fake_embedder import FakeEmbeddingProvider
+from voussoir.memory.adapter import InMemorySessionStore, InMemoryStore
+from voussoir.observability.sink import ITelemetrySink, NullTelemetrySink
+from voussoir.protocols import IEmbeddingProvider, ILLMProvider, IMemoryStore, ISessionStore
+
+
+def build_unfrozen_container() -> Container:
+    """Mirror default_container's wiring without the security-critical freeze,
+    so AllowAllAuthorizer can be bound for this demo."""
+    container = Container()
+    container.bind(IMemoryStore, InMemoryStore())
+    container.bind(ISessionStore, InMemorySessionStore())
+    container.bind(ITelemetrySink, NullTelemetrySink())  # type: ignore[type-abstract]
+    container.bind(KeyProvider, EnvKeyProvider(allow_ephemeral=True))  # type: ignore[type-abstract]
+    container.bind(Authorizer, AllowAllAuthorizer())  # type: ignore[type-abstract]
+    container.bind(IToolExecutor, StandardExecutor())  # type: ignore[type-abstract]
+    container.bind(IGuardrailChain, DefaultGuardrailChain([]))  # type: ignore[type-abstract]
+    container.bind(IEmbeddingProvider, FakeEmbeddingProvider())
+    container.bind(
+        ILLMProvider,
+        OpenRouterLLMProvider(
+            OpenRouterConfig(
+                api_key=os.environ["OPENROUTER_API_KEY"],
+                model="deepseek/deepseek-v4-flash-0731",
+                base_url=os.environ.get("OPENROUTER_BASE_URL") or OPENROUTER_BASE_URL,
+            )
+        ),
+    )  # type: ignore[type-abstract]
+    return container
 
 
 async def main() -> None:
-    container = default_container()
+    container = build_unfrozen_container()
 
     researcher = Agent(
         name="researcher",
@@ -25,7 +65,7 @@ async def main() -> None:
             "concise; cite no sources (you do not have web access in this "
             "demo)."
         ),
-        model="claude-haiku-4-5-20251001",
+        model="deepseek/deepseek-v4-flash-0731",
         container=container,
     )
     writer = Agent(
@@ -36,7 +76,7 @@ async def main() -> None:
             "produce a single concise paragraph (≤120 words) suitable for an "
             "executive summary."
         ),
-        model="claude-haiku-4-5-20251001",
+        model="deepseek/deepseek-v4-flash-0731",
         container=container,
     )
     lead = Agent(
@@ -48,7 +88,7 @@ async def main() -> None:
             "paragraph. Return only the writer's output."
         ),
         delegates=[researcher, writer],
-        model="claude-haiku-4-5-20251001",
+        model="deepseek/deepseek-v4-flash-0731",
         container=container,
     )
 
