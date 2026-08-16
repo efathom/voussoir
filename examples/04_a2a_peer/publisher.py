@@ -19,8 +19,11 @@ from voussoir.container.defaults import default_container
 
 
 def main() -> None:
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("Set ANTHROPIC_API_KEY to run the publisher.")
+    if not any(
+        os.environ.get(k)
+        for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY")
+    ):
+        print("Set an LLM API key (ANTHROPIC_API_KEY/OPENAI_API_KEY/OPENROUTER_API_KEY) to run the publisher.")
         return
     c = default_container()
     agent = Agent(
@@ -30,7 +33,7 @@ def main() -> None:
             "You are a research assistant. Given a topic, produce 3-5 bullet "
             "points capturing key recent developments. Be concise."
         ),
-        model="claude-haiku-4-5-20251001",
+        model="deepseek/deepseek-v4-flash-0731",
         container=c,
     )
     print("Publishing 'researcher' on http://127.0.0.1:8765")

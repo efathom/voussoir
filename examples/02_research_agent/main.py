@@ -17,8 +17,15 @@ the bindings ``default_container`` would have set up, minus the freeze.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from pathlib import Path
+
+from ctxforge.llm.openrouter_provider import (
+    OPENROUTER_BASE_URL,
+    OpenRouterConfig,
+    OpenRouterLLMProvider,
+)
 
 from voussoir import Agent, Container
 from voussoir.a2a.keys import EnvKeyProvider, KeyProvider
@@ -27,7 +34,6 @@ from voussoir.auth.protocol import Authorizer
 from voussoir.container.defaults import bind_sqlite_memory
 from voussoir.executors import IToolExecutor, StandardExecutor
 from voussoir.guardrails import DefaultGuardrailChain, IGuardrailChain
-from voussoir.llm.anthropic import AnthropicLLMProvider
 from voussoir.llm.fake_embedder import FakeEmbeddingProvider
 from voussoir.mcp.client import MCPClient
 from voussoir.memory.adapter import InMemorySessionStore, InMemoryStore
@@ -51,7 +57,16 @@ def build_unfrozen_container() -> Container:
     container.bind(IToolExecutor, StandardExecutor())  # type: ignore[type-abstract]
     container.bind(IGuardrailChain, DefaultGuardrailChain([]))  # type: ignore[type-abstract]
     container.bind(IEmbeddingProvider, FakeEmbeddingProvider())
-    container.bind(ILLMProvider, AnthropicLLMProvider())
+    container.bind(
+        ILLMProvider,
+        OpenRouterLLMProvider(
+            OpenRouterConfig(
+                api_key=os.environ["OPENROUTER_API_KEY"],
+                model="deepseek/deepseek-v4-flash-0731",
+                base_url=os.environ.get("OPENROUTER_BASE_URL") or OPENROUTER_BASE_URL,
+            )
+        ),
+    )  # type: ignore[type-abstract]
     return container
 
 
@@ -65,7 +80,7 @@ async def main() -> None:
         agent = Agent(
             name="researcher",
             instructions="You are a research assistant.",
-            model="claude-haiku-4-5-20251001",
+            model="deepseek/deepseek-v4-flash-0731",
             tools=tools,
             container=container,
         )

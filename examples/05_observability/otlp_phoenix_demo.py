@@ -13,14 +13,15 @@ from __future__ import annotations
 import asyncio
 import os
 
-from voussoir import Agent, Container
+from voussoir import Agent
+from voussoir.container.defaults import default_container
 
 
 async def main() -> None:
     os.environ.setdefault("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:6006/v1/traces")
     os.environ.setdefault("OTEL_SERVICE_NAME", "voussoir-demo")
 
-    c = Container()
+    c = default_container()
     a = Agent(name="demo", container=c)
     result = await a.run("What is 2+2? Reply with the number only.")
     print(f"\n=== Final output: {result.output} ===")
