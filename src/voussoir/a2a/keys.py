@@ -14,7 +14,8 @@ The default EnvKeyProvider:
 - Reads VOUSSOIR_A2A_CARD_SIGNING_KEY_PATH (PEM file) or auto-generates an
   ephemeral RSA-2048 keypair in memory (lost on restart).
 
-Production deployments bind a custom KeyProvider (KMS, Vault, HSM).
+Production deployments supply a custom KeyProvider (KMS, Vault, HSM) via
+`default_container(key_provider=...)`, or bind one on a hand-built Container.
 """
 
 from __future__ import annotations

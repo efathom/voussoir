@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import time
+from collections import deque
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlsplit, urlunsplit
 
@@ -33,6 +34,9 @@ from voussoir.a2a.transport import (
 )
 from voussoir.agent.policy import PolicyViolationError
 from voussoir.auth.a2a import DefaultJWTPrincipalMapper, JWTPrincipalMapper
+from voussoir.observability.logging_setup import get_logger
+
+_log = get_logger(__name__)
 
 # Phase 4.5a P1 #15: JWT algorithm allow-list hardcoded here so an attacker
 # with env-var write can't downgrade VOUSSOIR_A2A_JWT_ALGORITHM to "none" or
@@ -55,15 +59,17 @@ class _SlidingWindowLimiter:
     def __init__(self, max_requests: int, window_s: float = 60.0) -> None:
         self._max = max_requests
         self._window = window_s
-        self._hits: dict[str, list[float]] = {}
+        # deque, not list: trimming the window with list.pop(0) is O(n) per
+        # expired hit (audit, minor). popleft() is O(1).
+        self._hits: dict[str, deque[float]] = {}
         self._lock = asyncio.Lock()
 
     async def allow(self, key: str) -> bool:
         now = time.monotonic()
         async with self._lock:
-            hits = self._hits.setdefault(key, [])
+            hits = self._hits.setdefault(key, deque())
             while hits and now - hits[0] > self._window:
-                hits.pop(0)
+                hits.popleft()
             if len(hits) >= self._max:
                 return False
             hits.append(now)
@@ -120,9 +126,26 @@ def make_a2a_router(
     _parsed = urlsplit(endpoint_url)
     jwks_uri_url = urlunsplit((_parsed.scheme, _parsed.netloc, "/.well-known/jwks.json", "", ""))
 
+    async def _rate_limited(request: Request) -> Response | None:
+        """Shared limiter check. Returns a 429 Response, or None to proceed."""
+        if limiter is None:
+            return None
+        client_key = request.client.host if request.client else "unknown"
+        if await limiter.allow(client_key):
+            return None
+        return Response(
+            status_code=429,
+            content=json.dumps({"error": "rate limit exceeded"}),
+            headers={"Retry-After": "60", "Content-Type": "application/json"},
+        )
+
     @router.get("/.well-known/agent-card.json")
     async def get_card(request: Request, accept: str | None = Header(default=None)) -> Response:
-        del request  # not used; consumers may stuff trace headers in future.
+        # The card route is unauthenticated and performs an RS256 signature per
+        # request, so it needs the same limiter the POST route has (audit,
+        # minor). Cache-Control only helps callers that honour it.
+        if (limited := await _rate_limited(request)) is not None:
+            return limited
         provider = agent.container.resolve(KeyProvider)  # type: ignore[type-abstract]
         card = card_from_agent(
             agent,
@@ -191,14 +214,8 @@ def make_a2a_router(
     ) -> Response:
         # 0. Rate limit (before auth/body work so unauthenticated floods can't
         #    consume JWT verification or body parsing). Keyed by peer address.
-        if limiter is not None:
-            client_key = request.client.host if request.client else "unknown"
-            if not await limiter.allow(client_key):
-                return Response(
-                    status_code=429,
-                    content=json.dumps({"error": "rate limit exceeded"}),
-                    headers={"Retry-After": "60", "Content-Type": "application/json"},
-                )
+        if (limited := await _rate_limited(request)) is not None:
+            return limited
 
         # 1. Authn — Bearer token required.
         if not authorization or not authorization.startswith("Bearer "):
@@ -308,8 +325,12 @@ def make_a2a_router(
         # 4. Dispatch — agent.run, not agent.delegate (spec §4.4 step 6).
         # The remote-invoked agent is a fresh top-level run; the caller's
         # delegation lineage stays with the caller.
-        session_id = str(claims.get("trace_id") or "a2a-default")
         user_id = str(claims.get("sub") or "a2a-anonymous")
+        # Fall back to a PER-CALLER session id, not a shared constant: with a
+        # constant, every caller whose token carried no trace_id landed in one
+        # session together (audit M5). The store is now keyed on
+        # (user_id, session_id) too, so this is belt and braces.
+        session_id = str(claims.get("trace_id") or f"a2a-default:{user_id}")
         # Phase 6 A9: map JWT claims to a Principal and pass it into agent.run.
         principal = await mapper.map(claims)
         try:
@@ -322,6 +343,17 @@ def make_a2a_router(
         except PolicyViolationError as exc:
             return _rpc_error(rpc.id, A2AErrorCode.POLICY_VIOLATION, str(exc))
         except Exception:  # noqa: BLE001 — wire boundary, do not leak trace
+            # Returning a sanitized error to the peer is right; discarding it
+            # entirely was not. This module had no logger at all, so any crash
+            # inside agent.run behind an A2A endpoint was invisible to the
+            # operator: no traceback, no counter, no span attribute (audit M9).
+            # The detail goes to the log, never to the wire.
+            _log.exception(
+                "a2a_dispatch_failed",
+                agent=agent.name,
+                rpc_id=rpc.id,
+                user_id=user_id,
+            )
             return _rpc_error(rpc.id, A2AErrorCode.INTERNAL_ERROR, "internal error")
 
         # Phase 4.5a P0 #3 + Phase 5 C6: wire response defaults to the

@@ -20,10 +20,11 @@ from voussoir.container.defaults import default_container
 
 def main() -> None:
     if not any(
-        os.environ.get(k)
-        for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY")
+        os.environ.get(k) for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY")
     ):
-        print("Set an LLM API key (ANTHROPIC_API_KEY/OPENAI_API_KEY/OPENROUTER_API_KEY) to run the publisher.")
+        print(
+            "Set an LLM API key (ANTHROPIC_API_KEY/OPENAI_API_KEY/OPENROUTER_API_KEY) to run the publisher."
+        )
         return
     c = default_container()
     agent = Agent(

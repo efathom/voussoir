@@ -9,20 +9,48 @@ from __future__ import annotations
 
 import re
 from typing import Literal
+from urllib.parse import urlsplit
 
 from voussoir.guardrails.protocol import GuardrailPayload, GuardrailVerdict
 
-# Match an http(s) URL and capture only the host. Two forms:
-#   - Bracketed IPv6 literal:  `https://[::1]/page`, `https://[2001:db8::1]:8080/`
-#     → captured group is the bracketed portion including the brackets, e.g. `[::1]`.
-#   - Plain host (DNS / IPv4):  `https://evil.com:8080/page` → captured `evil.com`.
-# Optional `:<port>` is consumed but not captured. The host terminates at `:`, `/`,
-# `?`, `#`, or whitespace.
+# Find URL-looking spans; the HOST is then extracted by urlsplit, not by this
+# regex. Hand-parsing the host inside the pattern produced three bypasses, all
+# of which ended in ALLOW because a non-match yields no finding at all
+# (audit H6):
+#   - `https://good.com@evil.com/`  — userinfo wasn't modelled
+#   - `HTTPS://EVIL.COM/`           — the pattern was case-sensitive
+#   - `https://evil.com\steal`      — browsers treat `\` as `/`, the regex didn't
+# It also rejected legitimate `https://GOOD.com/` because the captured host was
+# compared case-sensitively. So: match loosely, parse strictly, fail closed.
 #
-# IPv6 (the bracketed form) was previously silently allowed because `[\w.-]+` does
-# not match `[` or `:`. v1.0.1 restores enforcement.
-_URL_RX = re.compile(r"https?://(\[[0-9a-fA-F:]+\]|[\w.-]+)(?::\d+)?(?:[/?#\s]|$)")
+# The span ends at whitespace, `<`, `>`, `"`, `'`, or a backtick — everything
+# else (including `\`) belongs to the URL as a browser would read it.
+_URL_SPAN_RX = re.compile(r"(?i:https?)://[^\s<>\"\'`]+")
 _IMAGE_WITH_URL = re.compile(r"!\[.*?\]\(https?://[^)]+\)")
+# `<img src=...>` is the same exfil vector in HTML dress; the markdown-only
+# pattern above let it through untouched (audit, minor).
+_HTML_IMG_WITH_URL = re.compile(r"<img\b[^>]*\bsrc\s*=\s*[\"\']?https?://", re.I)
+
+
+def _hosts_in(text: str) -> list[str | None]:
+    """Extract the hostname of every URL-looking span in *text*.
+
+    A span that fails to parse, or parses without a hostname, yields ``None``
+    so the caller can fail closed on it rather than silently allowing it.
+    Hostnames come back lowercased — `urlsplit().hostname` already case-folds
+    and strips userinfo and port.
+    """
+    out: list[str | None] = []
+    for span in _URL_SPAN_RX.findall(text):
+        # A URL at the end of a sentence usually swallows the punctuation.
+        candidate = span.rstrip(".,;:!?)]}")
+        try:
+            host = urlsplit(candidate).hostname
+        except ValueError:
+            out.append(None)
+            continue
+        out.append(host)
+    return out
 
 
 class URLAllowlist:
@@ -47,17 +75,24 @@ class URLAllowlist:
     ) -> None:
         if not allowlist:
             raise ValueError("URLAllowlist requires a non-empty allowlist")
-        self._allowed = set(allowlist)
+        # Case-folded on both sides: hostnames are case-insensitive, and
+        # comparing them case-sensitively rejected `https://GOOD.com/` while a
+        # bypass let `HTTPS://EVIL.COM/` through. Brackets are stripped so an
+        # operator can write `::1` rather than `[::1]`.
+        self._allowed = {h.strip().strip("[]").lower() for h in allowlist}
         self.stage: Literal["input", "tool_call", "tool_output", "output"] = stage
 
     async def screen(self, payload: GuardrailPayload, ctx: object) -> GuardrailVerdict:
         del ctx
-        for raw_host in _URL_RX.findall(payload.content):
-            # Strip IPv6 brackets so operators can write `::1` in the allowlist
-            # rather than having to bracket-quote it.
-            host = (
-                raw_host[1:-1] if raw_host.startswith("[") and raw_host.endswith("]") else raw_host
-            )
+        for host in _hosts_in(payload.content):
+            if host is None:
+                # Looked like a URL, didn't parse. Fail closed — matching the
+                # rest of the framework's posture, and closing the hole where an
+                # unparseable URL produced no finding and was therefore allowed.
+                return GuardrailVerdict(
+                    verdict="BLOCK",
+                    reason="content contains an unparseable URL",
+                )
             if host not in self._allowed:
                 return GuardrailVerdict(
                     verdict="BLOCK",
@@ -71,7 +106,8 @@ class ExfilPatternScan:
 
     Use this on output-stage screening to catch Markdown image syntax that
     embeds a URL — a common data-exfiltration vector where an attacker encodes
-    data in query parameters of an external image request.
+    data in query parameters of an external image request. The HTML form,
+    `<img src="https://...">`, is caught too.
     """
 
     name = "exfil_pattern_scan"
@@ -79,7 +115,7 @@ class ExfilPatternScan:
 
     async def screen(self, payload: GuardrailPayload, ctx: object) -> GuardrailVerdict:
         del ctx
-        if _IMAGE_WITH_URL.search(payload.content):
+        if _IMAGE_WITH_URL.search(payload.content) or _HTML_IMG_WITH_URL.search(payload.content):
             return GuardrailVerdict(
                 verdict="BLOCK",
                 reason="output contains image-with-URL (data-exfil vector)",

@@ -47,27 +47,41 @@ asyncio.run(main())
 API key, binds the matching LLM provider (Anthropic when `ANTHROPIC_API_KEY` is
 set, OpenAI when `OPENAI_API_KEY` is set, OpenRouter when `OPENROUTER_API_KEY`
 is set), and registers an in-memory session and memory store.
-Seven security-critical bindings (`Authorizer`, `KeyProvider`, `ITelemetrySink`,
-`ILLMProvider`, `IMemoryStore`, `ISessionStore`, `IToolExecutor`) are **frozen** to
-prevent plugin-driven swaps. To upgrade the memory tier, build a fresh `Container()`
-and call `bind_sqlite_memory(container, path="memory.db")` on it before the
-default freezes apply — see `voussoir.container.defaults` for the canonical
-composition pattern. Every `Agent` requires an explicit `container=` argument;
-the framework refuses to construct one silently so configuration errors surface
-at startup, not buried inside `agent.run()`.
+Eight security-critical bindings (`Authorizer`, `KeyProvider`, `ITelemetrySink`,
+`ILLMProvider`, `IMemoryStore`, `ISessionStore`, `IToolExecutor`,
+`IGuardrailChain`) are **frozen** to prevent plugin-driven swaps.
 
-**Authorization is fail-closed by default.** `default_container()` binds the
-`DenyByDefaultAuthorizer`, which denies every tool call until you bind a concrete
-grant. An agent that only chats (no tools) needs nothing extra; an agent that
-invokes tools must be granted access first. For development, bind the permissive
-`AllowAllAuthorizer`; for production, bind `RoleAuthorizer`, `DomainAuthorizer`, or
-a `ChainedAuthorizer` (see [Extending](extending.md)):
+Because the freeze applies the moment `default_container()` returns, every
+choice it covers is made *as an argument to that call* — `authorizer=`,
+`memory_store=`, `session_store=`, `guardrail_profile=` and `url_allowlist=`.
+Trying to `bind()` a frozen key afterwards raises `RuntimeError` by design. To
+upgrade the memory tier, for instance:
 
 ```python
-from voussoir.auth import Authorizer, AllowAllAuthorizer
-container = default_container()
-container.bind(Authorizer, AllowAllAuthorizer())  # dev only — fail-open
+from voussoir.container.defaults import default_container
+from voussoir.memory.backends.sqlite import SQLiteMemoryStore
+
+container = default_container(memory_store=SQLiteMemoryStore(path="memory.db", embedder=...))
 ```
+
+Every `Agent` requires an explicit `container=` argument; the framework refuses
+to construct one silently so configuration errors surface at startup, not
+buried inside `agent.run()`.
+
+**Authorization is fail-closed by default.** With no `authorizer=` argument,
+`default_container()` uses `DenyByDefaultAuthorizer`, which denies every tool
+call. An agent that only chats (no tools) needs nothing extra; an agent that
+invokes tools must be granted access. For development, pass the permissive
+`AllowAllAuthorizer`; for production, pass `RoleAuthorizer`, `DomainAuthorizer`,
+or a `ChainedAuthorizer` (see [Extending](extending.md)):
+
+```python
+from voussoir.auth import AllowAllAuthorizer
+container = default_container(authorizer=AllowAllAuthorizer())  # dev only — fail-open
+```
+
+Pass it here rather than binding it afterwards: `Authorizer` is one of the
+frozen keys, so a later `container.bind(Authorizer, ...)` is rejected.
 
 `agent.run()` returns an `AgentResult[str]`. The `output` field holds the final
 text the model produced. `tokens_in` and `tokens_out` are the raw token counts
@@ -90,10 +104,10 @@ declares what the function is allowed to do; the framework enforces it inline
 before the tool body runs.
 
 ```python
-# examples/02_research_agent/main.py
+# A minimal tool-using agent (see examples/02_research_agent/ for the full demo)
 import asyncio
 from voussoir import Agent
-from voussoir.auth import AllowAllAuthorizer, Authorizer
+from voussoir.auth import AllowAllAuthorizer
 from voussoir.container.defaults import default_container
 from voussoir.tools import Capability, tool
 
@@ -104,9 +118,8 @@ async def get_weather(city: str) -> str:
     return f"It is 72°F and sunny in {city}."
 
 async def main() -> None:
-    container = default_container()
     # Authorization is fail-closed by default: grant tool access explicitly.
-    container.bind(Authorizer, AllowAllAuthorizer())  # dev only
+    container = default_container(authorizer=AllowAllAuthorizer())  # dev only
 
     agent = Agent(
         name="weather-assistant",
@@ -152,12 +165,12 @@ permissions its parent holds.
 # examples/03_multi_agent_research/main.py
 import asyncio
 from voussoir import Agent
-from voussoir.auth import AllowAllAuthorizer, Authorizer
+from voussoir.auth import AllowAllAuthorizer
 from voussoir.container.defaults import default_container
 
 async def main() -> None:
-    container = default_container()
-    container.bind(Authorizer, AllowAllAuthorizer())  # dev only; grants delegate-tool access
+    # dev only; grants delegate-tool access
+    container = default_container(authorizer=AllowAllAuthorizer())
 
     researcher = Agent(
         name="researcher",
@@ -344,12 +357,12 @@ if __name__ == "__main__":
 # examples/04_a2a_peer/caller.py
 import asyncio
 from voussoir import Agent, AgentRef
-from voussoir.auth import AllowAllAuthorizer, Authorizer
+from voussoir.auth import AllowAllAuthorizer
 from voussoir.container.defaults import default_container
 
 async def main() -> None:
-    c = default_container()
-    c.bind(Authorizer, AllowAllAuthorizer())  # dev only; grants delegate-tool access
+    # dev only; grants delegate-tool access
+    c = default_container(authorizer=AllowAllAuthorizer())
 
     # Fetch the remote agent's card and wrap it as a delegate.
     ref = await AgentRef.discover("http://127.0.0.1:8765")

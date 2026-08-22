@@ -37,6 +37,7 @@ from voussoir.a2a.errors import DelegationError
 from voussoir.agent import delegation
 from voussoir.agent.context import AgentContext
 from voussoir.agent.delegate import IDelegate
+from voussoir.agent.interrupts import InterruptRequest
 from voussoir.agent.policy import PolicyViolationError
 from voussoir.agent.result import AgentResult, GuardrailDecision, Step
 from voussoir.agent.turn_adapter import ToolCallAdapter
@@ -44,7 +45,7 @@ from voussoir.executors import IToolExecutor
 from voussoir.guardrails import GuardrailPayload, GuardrailVerdict
 from voussoir.observability import span as otel_span
 from voussoir.observability.metrics import GUARDRAIL_DECISIONS, TOOL_CALLS
-from voussoir.tools.protocol import ToolContext
+from voussoir.tools.protocol import Capability, ToolContext
 from voussoir.tools.registry import ToolRegistry
 
 parent_ctx_var: contextvars.ContextVar[AgentContext | None] = contextvars.ContextVar(
@@ -242,6 +243,15 @@ async def _dispatch_one(
         output_str = str(output)
     except asyncio.CancelledError:
         raise  # never swallow cancellation
+    except InterruptRequest:
+        # audit H4: ctx.interrupt() is a control-flow signal, not a tool
+        # failure. It subclasses VoussoirError -> Exception, so without this
+        # clause the `except Exception` below turned every interrupt into
+        # "TOOL_ERROR: interrupt requested: <kind>" in the model's context and
+        # the run carried on — making the whole interrupt/resume protocol
+        # inert, contrary to what interrupts.py and ToolContext.interrupt
+        # both document.
+        raise
     except PolicyViolationError:
         # Hard security denials must propagate to the caller — they must NOT
         # be silently surfaced as TOOL_ERROR text to the LLM.
@@ -318,42 +328,33 @@ async def _dispatch_one(
     )
 
 
-async def dispatch_tool_calls(
-    tool_calls: list[dict[str, Any]],
+def _is_exfiltration(tc: dict[str, Any], registry: ToolRegistry) -> bool:
+    """True when `tc` names a tool that carries the EXFILTRATION capability.
+
+    An unresolvable name is treated as non-exfiltrating so `_dispatch_one`
+    raises the same KeyError it always did, rather than this helper masking it.
+    """
+    try:
+        tool_obj = registry.resolve(tc["name"])
+    except KeyError:
+        return False
+    return bool(tool_obj.capability & Capability.EXFILTRATION)
+
+
+async def _gather_wave(
+    wave: list[tuple[int, dict[str, Any]]],
     *,
     registry: ToolRegistry,
     executor: IToolExecutor,
     ctx: AgentContext,
-) -> list[ToolCallOutcome]:
-    """Run every tool_use block concurrently; return outcomes in declared order.
-
-    Phase 4.5a P0 #6: uses asyncio.gather inside try/finally so unfinished
-    tasks are cancelled and drained when the caller is cancelled mid-flight.
-    Pre-4.5a used as_completed which leaked the in-flight _dispatch_one
-    tasks (they kept holding ctx/registry/HTTP refs).
-
-    Order: gather preserves submission order, so outcomes line up with
-    tool_calls indexes naturally — the previous outcomes_by_id re-ordering
-    map is unnecessary.
-
-    Propagation: _dispatch_one captures regular Exception as outcome.error
-    internally, but DELIBERATELY re-raises both CancelledError (cooperative
-    cancellation) AND PolicyViolationError (hard security denials —
-    CAPABILITY_DENIED / TAINT_EXFILTRATION / AUTHZ_DENIED must never be
-    silently converted to TOOL_ERROR strings the LLM could see). When
-    PolicyViolationError fires in a concurrent batch, gather raises it
-    immediately, the finally block cancels sibling tasks, and the exception
-    propagates up to tool_turn_dispatch / Agent._run_normal — which is the
-    intended fail-loud behavior.
-    """
-    if not tool_calls:
-        return []
+) -> list[tuple[int, ToolCallOutcome]]:
+    """Dispatch one wave concurrently, cancelling and draining on failure."""
     tasks = [
         asyncio.create_task(_dispatch_one(tc, registry=registry, executor=executor, ctx=ctx))
-        for tc in tool_calls
+        for _, tc in wave
     ]
     try:
-        return await asyncio.gather(*tasks)
+        outcomes = await asyncio.gather(*tasks)
     finally:
         for t in tasks:
             if not t.done():
@@ -361,6 +362,72 @@ async def dispatch_tool_calls(
         if any(not t.done() for t in tasks):
             # Drain so cancellation actually propagates before we return.
             await asyncio.gather(*tasks, return_exceptions=True)
+    return [(idx, outcome) for (idx, _), outcome in zip(wave, outcomes, strict=True)]
+
+
+async def dispatch_tool_calls(
+    tool_calls: list[dict[str, Any]],
+    *,
+    registry: ToolRegistry,
+    executor: IToolExecutor,
+    ctx: AgentContext,
+) -> list[ToolCallOutcome]:
+    """Run a turn's tool_use blocks in two waves; return outcomes in declared order.
+
+    Phase 4.5a P0 #6: uses asyncio.gather inside try/finally so unfinished
+    tasks are cancelled and drained when the caller is cancelled mid-flight.
+    Pre-4.5a used as_completed which leaked the in-flight _dispatch_one
+    tasks (they kept holding ctx/registry/HTTP refs).
+
+    Two waves, not one (audit B2). `ToolContext` is a Pydantic model, so its
+    `taint` set is COPIED at construction — every task in a single concurrent
+    batch therefore reads the same pre-turn snapshot, and a tool's own trust
+    tag is only merged back into `ctx.taint` in `_dispatch_one`'s finally
+    block, after the tool has already run. With one batch, a READ_PUBLIC fetch
+    and an EXFILTRATION send declared in the SAME assistant turn both saw
+    clean taint and the send went through — the Lethal Trifecta exfiltration
+    this executor exists to block, reachable by an injected page that gets the
+    model to emit both calls at once.
+
+    So: wave 1 runs everything that can ADD taint, and only once all of it has
+    merged back into `ctx.taint` does wave 2 run the EXFILTRATION-capable
+    calls, whose `ToolContext` snapshots then include wave 1's trust tags.
+    Concurrency within each wave is unchanged. A turn with no EXFILTRATION
+    call is a single wave and behaves exactly as before.
+
+    Ordering is not left to `gather`: each call carries its declared index
+    through its wave, and outcomes are re-sorted before returning, so the
+    result still lines up with `tool_calls` positionally.
+
+    Propagation: _dispatch_one captures regular Exception as outcome.error
+    internally, but DELIBERATELY re-raises CancelledError (cooperative
+    cancellation), InterruptRequest (the pause-for-input control signal) AND
+    PolicyViolationError (hard security denials — CAPABILITY_DENIED /
+    TAINT_EXFILTRATION / AUTHZ_DENIED must never be silently converted to
+    TOOL_ERROR strings the LLM could see). When one of those fires in a
+    concurrent batch, gather raises it immediately, the finally block cancels
+    sibling tasks, and the exception propagates up to tool_turn_dispatch /
+    Agent._run_normal — which is the intended fail-loud behavior. A
+    PolicyViolationError in wave 1 means wave 2 never runs at all.
+    """
+    if not tool_calls:
+        return []
+
+    first_wave: list[tuple[int, dict[str, Any]]] = []
+    exfil_wave: list[tuple[int, dict[str, Any]]] = []
+    for idx, tc in enumerate(tool_calls):
+        target = exfil_wave if _is_exfiltration(tc, registry) else first_wave
+        target.append((idx, tc))
+
+    collected: list[tuple[int, ToolCallOutcome]] = []
+    if first_wave:
+        collected += await _gather_wave(first_wave, registry=registry, executor=executor, ctx=ctx)
+    if exfil_wave:
+        # ctx.taint now carries every trust tag wave 1 produced.
+        collected += await _gather_wave(exfil_wave, registry=registry, executor=executor, ctx=ctx)
+
+    collected.sort(key=lambda pair: pair[0])
+    return [outcome for _, outcome in collected]
 
 
 def accumulate_outcomes(

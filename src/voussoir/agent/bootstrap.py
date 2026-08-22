@@ -20,6 +20,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from voussoir.agent.agent import Agent
 from voussoir.agent.agent_builder import AgentBuilder
 from voussoir.agent.registry import AgentRegistry
@@ -33,7 +35,15 @@ _ENV_OVERRIDE_FIELDS: dict[str, str] = {
     "TEMPERATURE": "temperature",
     "SYSTEM_PROMPT": "system_prompt",
     "MAX_STEPS": "max_steps",
-    "MAX_CASCADE_DEPTH": "max_cascade_depth",
+    "MAX_DURATION_S": "max_duration_s",
+    # NOTE: every value here must be a real AgentConfig field. AgentConfig sets
+    # extra="forbid", so a mapping to a non-existent field raises
+    # pydantic.ValidationError from model_validate below. "MAX_CASCADE_DEPTH"
+    # was mapped to a field that never existed, and the resulting error was not
+    # caught by the parse guard — so a documented env override took down
+    # `voussoir run` at startup instead of applying (audit M2). Cascade is a
+    # Python-only construct (see voussoir.config's module docstring); it has no
+    # yaml/env surface.
     "ALLOWED_CAPABILITIES": "allowed_capabilities",
 }
 
@@ -42,7 +52,9 @@ def _env_value_for_field(field_name: str, raw: str) -> object:
     """Convert env-var string to the typed value AgentConfig expects."""
     if field_name == "temperature":
         return float(raw)
-    if field_name in ("max_steps", "max_cascade_depth"):
+    if field_name == "max_duration_s":
+        return float(raw)
+    if field_name == "max_steps":
         return int(raw)
     if field_name == "allowed_capabilities":
         # Pipe-separated capability names: "READ_PUBLIC|EXFILTRATION"
@@ -114,7 +126,20 @@ def _apply_env_overrides(c: Container, registry: AgentRegistry) -> None:
                 error=str(exc),
             )
             continue
-        overrides = AgentConfig.model_validate({matched_field: typed_value})
+        try:
+            overrides = AgentConfig.model_validate({matched_field: typed_value})
+        except ValidationError as exc:
+            # Defence in depth for the class of bug audit M2 found: a mapping in
+            # _ENV_OVERRIDE_FIELDS that names a field AgentConfig doesn't have.
+            # A bad override must degrade to "skipped, with a warning" like
+            # every other one, never take down process startup.
+            log.warning(
+                "env_override_rejected_by_schema",
+                env_key=env_key,
+                field=matched_field,
+                error=str(exc),
+            )
+            continue
         updated = AgentBuilder.from_agent(existing).apply_config(overrides).build()
         registry.replace(updated)
 

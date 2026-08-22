@@ -19,7 +19,10 @@ from typing import Any, Protocol, runtime_checkable
 
 from ctxforge.protocols.llm import ChatMessage, LLMResponse
 
+from voussoir.observability.logging_setup import get_logger
 from voussoir.tools.protocol import Tool
+
+_log = get_logger(__name__)
 
 
 @runtime_checkable
@@ -173,15 +176,35 @@ class OpenAIToolCalls:
         tool_calls = message.get("tool_calls") or []
         out: list[dict[str, Any]] = []
         for tc in tool_calls:
-            if tc.get("type") != "function":
+            if not isinstance(tc, dict) or tc.get("type") != "function":
                 continue
             fn = tc.get("function") or {}
+            name = fn.get("name")
+            if not name:
+                # Nothing dispatchable; skipping is better than a KeyError that
+                # takes down the run (audit, minor).
+                _log.warning("openai_tool_call_missing_name", tool_call=str(tc)[:200])
+                continue
             args_raw = fn.get("arguments", "{}")
             if isinstance(args_raw, str):
-                args_dict: dict[str, Any] = json.loads(args_raw) if args_raw else {}
+                try:
+                    args_dict: dict[str, Any] = json.loads(args_raw) if args_raw else {}
+                except json.JSONDecodeError:
+                    # Malformed JSON arguments are a routine LLM failure mode.
+                    # Raising here aborted the entire Agent.run/stream, unlike
+                    # every other bad-args path — dispatch.py turns a schema
+                    # failure into a per-tool BLOCK the model can recover from.
+                    # Hand dispatch an empty dict so it produces that same
+                    # BLOCK outcome instead (audit, minor).
+                    _log.warning(
+                        "openai_tool_call_bad_arguments_json",
+                        tool_name=name,
+                        arguments_preview=args_raw[:200],
+                    )
+                    args_dict = {}
             else:
                 args_dict = args_raw or {}
-            out.append({"id": tc["id"], "name": fn["name"], "arguments": args_dict})
+            out.append({"id": tc.get("id", ""), "name": name, "arguments": args_dict})
         return out
 
     def build_tool_result_message(

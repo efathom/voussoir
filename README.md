@@ -31,10 +31,19 @@ Set `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OPENROUTER_API_KEY` and run. That
 
 > `default_container()` wires the LLM provider (from your `ANTHROPIC_API_KEY` /
 > `OPENAI_API_KEY` / `OPENROUTER_API_KEY` env), default memory + session stores,
-> the fail-closed `DenyByDefaultAuthorizer` (bind a concrete authorizer to grant
-> tool access), the `standard` guardrail chain, and a no-op telemetry sink. For
-> explicit control over bindings, construct a bare `Container()` and
-> `container.bind(Protocol, impl)` yourself.
+> the fail-closed `DenyByDefaultAuthorizer`, the `standard` guardrail chain, and
+> a no-op telemetry sink. Security-critical keys are frozen on the way out, so
+> anything you need to choose is chosen as an argument:
+>
+> ```python
+> from voussoir.auth import AllowAllAuthorizer
+> container = default_container(authorizer=AllowAllAuthorizer())  # dev only
+> ```
+>
+> An agent that only chats needs nothing extra; an agent with tools needs an
+> authorizer that grants them. `memory_store=`, `session_store=`,
+> `guardrail_profile=` and `url_allowlist=` work the same way. For full control,
+> construct a bare `Container()` and `container.bind(Protocol, impl)` yourself.
 
 ## Install
 
@@ -111,9 +120,9 @@ voussoir doctor                    # environment health check
 ```
 src/voussoir/        — library code
 docs/                — public docs (mkdocs-material)
-docs/superpowers/    — internal specs and plans (not shipped)
+docs/api/            — mkdocstrings API reference stubs
 examples/            — runnable demos
-tests/               — pytest suite (~1080 tests as of v1.3.0)
+tests/               — pytest suite (~1100 tests as of v1.3.0)
 ```
 
 ## Status

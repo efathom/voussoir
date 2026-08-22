@@ -18,9 +18,19 @@ from typing import Literal
 
 from voussoir.guardrails.protocol import GuardrailPayload, GuardrailVerdict
 
+# The qualifier group repeats (`(?:…\s+)+`) rather than matching exactly once.
+# With a single qualifier, "ignore all previous instructions" — far and away
+# the most common phrasing of the attack — did NOT match: the alternation
+# consumed "all" and then required "instructions", but found "previous". Same
+# for "ignore the above instructions". Both now match (audit, minor).
+_QUALIFIER_WORD = r"(?:previous|prior|all|above|the|any|earlier)"
+_QUALIFIERS = rf"(?:{_QUALIFIER_WORD}\s+)+"
+
 _PATTERNS = [
-    re.compile(r"ignore\s+(?:previous|prior|all|above)\s+instructions", re.I),
-    re.compile(r"disregard\s+(?:previous|prior|all|above)", re.I),
+    re.compile(rf"ignore\s+{_QUALIFIERS}instructions", re.I),
+    # `disregard` keeps its looser shape (no trailing "instructions" required)
+    # because "disregard previous" is already a complete instruction-override.
+    re.compile(rf"disregard\s+(?:{_QUALIFIERS})?{_QUALIFIER_WORD}", re.I),
     re.compile(r"system\s*[:>]\s*you\s+(?:are|must|will)", re.I),
     re.compile(r"reveal\s+(?:your\s+)?(?:system\s+)?prompt", re.I),
 ]

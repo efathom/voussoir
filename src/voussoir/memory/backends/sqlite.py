@@ -234,8 +234,11 @@ class SQLiteMemoryStore(IMemoryStore):
         def _keyword_search() -> list[MemoryItem]:
             con = self._connect()
             try:
-                placeholders = " OR ".join(["LOWER(content) LIKE ?"] * len(keywords))
-                params: list[Any] = [f"%{kw.lower()}%" for kw in keywords]
+                # ESCAPE '\\' + escaping the wildcards: a keyword containing %
+                # or _ otherwise matched far more than the caller asked for
+                # (audit, minor).
+                placeholders = " OR ".join(["LOWER(content) LIKE ? ESCAPE '\\'"] * len(keywords))
+                params: list[Any] = [f"%{_escape_like(kw.lower())}%" for kw in keywords]
                 params.append(user_id)
                 rows = con.execute(
                     f"""
@@ -284,6 +287,11 @@ class SQLiteMemoryStore(IMemoryStore):
         # Higher cosine = more similar; sort descending.
         scored.sort(key=lambda t: t[0], reverse=True)
         return [_row_to_item(r) for _, r in scored[: query.limit]]
+
+
+def _escape_like(text: str) -> str:
+    """Escape SQL LIKE metacharacters so a keyword matches itself literally."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _type_value(t: Any) -> str:

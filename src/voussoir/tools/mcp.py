@@ -40,6 +40,34 @@ from voussoir.tools.protocol import Capability, ToolContext
 
 _log = get_logger(__name__)
 
+
+def _model_visible_strings(
+    name: str,
+    description: str,
+    input_schema: type[BaseModel],
+) -> list[tuple[str, str]]:
+    """Every server-controlled string that ends up in the model's context.
+
+    Returns ``(label, text)`` pairs so the caller can name the offending field
+    in its error. Covers the tool name, the tool description, and each
+    parameter's ``description`` / ``title`` as they appear in the JSON schema
+    the adapter sends to the provider.
+    """
+    out: list[tuple[str, str]] = [("name", name), ("description", description)]
+    try:
+        schema = input_schema.model_json_schema()
+    except Exception:  # pragma: no cover — a malformed model shouldn't mask the rest
+        return out
+    for prop_name, prop in (schema.get("properties") or {}).items():
+        if not isinstance(prop, dict):
+            continue
+        for key in ("description", "title"):
+            value = prop.get(key)
+            if isinstance(value, str) and value:
+                out.append((f"parameter {prop_name!r} {key}", value))
+    return out
+
+
 _READ_PREFIXES = ("search_", "get_", "list_", "read_", "find_", "fetch_")
 _WRITE_PREFIXES = ("create_", "send_", "delete_", "post_", "update_", "write_", "remove_")
 
@@ -84,19 +112,29 @@ class MCPTool:
         session: ClientSession,
         remote_name: str,
     ) -> None:
-        # v1.0.2 D4: screen description for prompt-injection patterns.
-        matched = find_injection_pattern(description)
-        if matched is not None:
+        # v1.0.2 D4: screen for prompt-injection patterns before registering.
+        #
+        # Screening the description alone was not enough (audit M10): the
+        # generated Pydantic model carries each PROPERTY's description, and
+        # ToolCallAdapter.serialize_tool ships model_json_schema() straight to
+        # the model — so a hostile server just moved its payload from the tool
+        # description into a parameter description and reached the LLM
+        # verbatim. The tool name reaches the model too. Screen all three.
+        for field_label, text in _model_visible_strings(name, description, input_schema):
+            matched = find_injection_pattern(text)
+            if matched is None:
+                continue
             _log.warning(
                 "mcp_tool_injection_blocked",
                 tool_name=name,
+                field=field_label,
                 pattern=matched.pattern,
-                description_preview=description[:100],
+                text_preview=text[:100],
             )
             raise ValueError(
-                f"MCP tool {name!r} description matches prompt-injection pattern "
-                f"{matched.pattern!r}; refusing to register. The MCP server may be "
-                f"compromised. Description preview: {description[:100]!r}"
+                f"MCP tool {name!r} has a {field_label} matching prompt-injection "
+                f"pattern {matched.pattern!r}; refusing to register. The MCP server "
+                f"may be compromised. Preview: {text[:100]!r}"
             )
 
         self.name = name

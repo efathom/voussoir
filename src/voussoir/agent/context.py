@@ -17,6 +17,7 @@ from typing import Any
 
 from ctxforge.engine.context_engine import CtxForge
 from ctxforge.engine.factory import EngineFactory
+from pydantic import BaseModel
 
 from voussoir.agent.result import GuardrailDecision
 from voussoir.auth.decision import AuthzDecision
@@ -27,6 +28,7 @@ from voussoir.guardrails.protocol import IGuardrailChain
 from voussoir.guardrails.trust import Trust
 from voussoir.protocols import IMemoryStore, ISessionStore
 from voussoir.tools.protocol import Capability
+from voussoir.tools.registry import ToolRegistry
 
 
 @dataclass
@@ -67,6 +69,9 @@ class AgentContext:
     # default_factory still returns a DefaultGuardrailChain([]) (the concrete
     # impl), but custom chains satisfying IGuardrailChain can be threaded in.
     guardrail_chain: IGuardrailChain = field(default_factory=lambda: DefaultGuardrailChain([]))
+    # Per-turn tool registry, set by Agent._run_setup. Backs the
+    # `tool_input_schema` accessor that ArgsSchemaCheck reads (audit M13).
+    tool_registry: ToolRegistry | None = field(default=None, repr=False)
 
     @classmethod
     async def open(
@@ -115,6 +120,28 @@ class AgentContext:
                 guardrail_chain if guardrail_chain is not None else DefaultGuardrailChain([])
             ),
         )
+
+    def tool_input_schema(self, tool_name: str) -> type[BaseModel] | None:
+        """Return the Pydantic input schema for `tool_name`, or None if unknown.
+
+        `ArgsSchemaCheck` (the only guardrail in the "off" profile, and present
+        in all three) looks this up with `getattr(ctx, "tool_input_schema",
+        None)` and returns ALLOW when it's absent. AgentContext never defined
+        it — only a test stub did — so the guardrail was a permanent no-op in
+        production, contrary to its own docstring's promise that "the B5 task
+        wires AgentContext with a real tool_input_schema accessor" (audit M13).
+
+        The registry is per-turn, so Agent sets `tool_registry` at run setup;
+        before that (or on a context built by hand) this returns None and the
+        guardrail falls through to ALLOW exactly as before.
+        """
+        registry = self.tool_registry
+        if registry is None:
+            return None
+        try:
+            return registry.resolve(tool_name).input_schema
+        except KeyError:
+            return None
 
     async def record_user_message(self, content: str) -> None:
         await self.engine.record_user_message(self.session_id, self.user_id, content)

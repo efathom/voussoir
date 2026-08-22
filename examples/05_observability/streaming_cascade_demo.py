@@ -24,7 +24,11 @@ class _AlwaysPassValidator:
 
 
 async def main() -> None:
-    cascade = RequestCascade(verifier=_AlwaysPassValidator(), max_cascade_depth=1)
+    cascade = RequestCascade(
+        verifier=_AlwaysPassValidator(),
+        max_attempts=1,
+        max_cascade_depth=1,
+    )
     c = default_container()
     a = Agent(name="demo", container=c, cascade=cascade)
 

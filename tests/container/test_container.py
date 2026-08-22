@@ -59,9 +59,34 @@ def test_run_scope_cached_per_run():
 
 def test_bind_with_default_param_overrides_at_resolve():
     c = Container()
-    with pytest.raises(LookupError):
-        c.resolve(Greeter, default=None)  # default=None means "raise if unbound"
     assert c.resolve(Greeter, default=Hello()).greet() == "hello"
+
+
+def test_resolve_default_none_returns_none_for_optional_dependencies():
+    """`default=None` is "return None when unbound", not "raise".
+
+    LLMGuardrailJudge.screen and LLMJudge.validate both do
+    `resolve(ITelemetrySink, default=None)` and then guard with
+    `if sink is not None:`. While the sentinel check also treated an explicit
+    None as "no default", both judges raised LookupError mid-validation on any
+    container that didn't bind a telemetry sink (audit H2).
+    """
+    c = Container()
+    assert c.resolve(Greeter, default=None) is None
+
+
+def test_rebinding_evicts_the_previously_cached_singleton():
+    """A rebind after a resolve must take effect, not be masked by the cache."""
+    c = Container()
+    c.bind(Greeter, Hello())
+    assert c.resolve(Greeter).greet() == "hello"
+
+    class Goodbye:
+        def greet(self) -> str:
+            return "goodbye"
+
+    c.bind(Greeter, Goodbye())
+    assert c.resolve(Greeter).greet() == "goodbye"
 
 
 def test_resolve_missing_with_helpful_message():

@@ -28,6 +28,7 @@ def tool(
     domains: list[str] | None = None,
     auth_requirement: AuthRequirement | None = None,
     sensitive_args: list[str] | None = None,
+    log_args: bool = False,
 ) -> Callable[[Callable[..., Awaitable[Any]]], Tool]:
     """Decorator: turn an async function into a Tool.
 
@@ -46,9 +47,14 @@ def tool(
     (A8) and CredentialBroker.resolve (A7). Stored as attributes on the wrapped
     tool; consumed via ``getattr(tool, "roles", [])`` by executor / authorizers.
 
-    Use ``sensitive_args=['password', 'api_key']`` to redact those keys from
-    the INFO ``tool.invoke`` log line. Redaction is logging-only; the tool
-    function always receives the real values.
+    Argument logging is opt-in. By default the INFO ``tool.invoke`` line
+    records argument NAMES with their values elided, because that line fires on
+    every tool call and routinely carries user data — making leaking the
+    default was the wrong way round. Pass ``log_args=True`` for a tool whose
+    arguments are safe to record, and combine it with
+    ``sensitive_args=['password', 'api_key']`` to keep specific keys redacted
+    even then. Both are logging-only; the tool function always receives the
+    real values.
     """
 
     def wrap(fn: Callable[..., Awaitable[Any]]) -> Tool:
@@ -79,6 +85,7 @@ def tool(
         decorated.domains = domains if domains is not None else []
         decorated.auth_requirement = auth_requirement
         decorated.sensitive_args = sensitive_args or []
+        decorated.log_args = log_args
         return decorated
 
     return wrap
@@ -141,6 +148,8 @@ class _DecoratedTool:
         # v1.0.1 T6: arg keys to redact from the INFO tool.invoke log line.
         # Not part of the Tool Protocol; consumers use getattr(tool, "sensitive_args", []).
         self.sensitive_args: list[str] = []
+        # Opt-in argument-value logging; see the `log_args` note on @tool.
+        self.log_args: bool = False
 
     async def invoke(self, args: BaseModel, ctx: ToolContext) -> Any:
         kwargs = args.model_dump()

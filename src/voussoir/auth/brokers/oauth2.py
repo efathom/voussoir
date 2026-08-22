@@ -26,6 +26,20 @@ if TYPE_CHECKING:
 
 _DEFAULT_REFRESH_BUFFER_S = 60
 
+# Cache slot for deployments where every caller legitimately shares one token
+# (service accounts, single-tenant CLIs). Distinct from any real principal id.
+_SHARED_KEY = "\x00shared"
+
+
+def _principal_key(principal: Principal | None) -> str:
+    """Cache key for a principal. `None` (or a principal with no id) maps to the
+    shared slot, preserving the pre-M8 single-token behaviour for callers that
+    never had per-user tokens in the first place."""
+    if principal is None:
+        return _SHARED_KEY
+    user_id = getattr(principal, "user_id", None)
+    return str(user_id) if user_id else _SHARED_KEY
+
 
 class OAuth2CredentialBroker:
     """Manage OAuth2 access tokens with automatic refresh-token renewal.
@@ -77,7 +91,13 @@ class OAuth2CredentialBroker:
         self._http_client = http_client
         self._keychain_service = keychain_service
         self._keychain_broker = keychain_broker
-        self._cached: Credentials | None = None
+        # Keyed by principal id: an OAuth2 access token belongs to a USER, not
+        # to the process. `resolve` ignored its `principal` argument and served
+        # one cached token to everybody — and `make_a2a_router` maps a JWT's
+        # `sub` to a Principal and threads it into ToolContext, so in any
+        # multi-tenant deployment whichever user seeded the broker last supplied
+        # the token every other user's tool calls ran with (audit M8).
+        self._cache: dict[str, Credentials] = {}
         # Serialize concurrent refresh attempts. Multiple concurrent tool calls
         # hitting an expired token would otherwise each fire a refresh-token grant
         # in parallel; standard OAuth2 servers invalidate the refresh_token on
@@ -87,14 +107,32 @@ class OAuth2CredentialBroker:
         # loop.
         self._refresh_lock: asyncio.Lock | None = None
 
-    def store_initial(self, creds: Credentials) -> None:
+    def store_initial(self, creds: Credentials, *, principal: Principal | None = None) -> None:
         """Seed the broker with an initial ``Credentials`` obtained out-of-band.
 
-        Call this once after completing an interactive / device-code / client-
-        credentials grant to allow subsequent ``resolve`` calls to serve from
-        cache and auto-refresh.
+        Call this once per user after completing an interactive / device-code /
+        client-credentials grant to allow subsequent ``resolve`` calls for that
+        principal to serve from cache and auto-refresh.
+
+        ``principal=None`` seeds the shared slot used by service-account style
+        deployments where every caller legitimately shares one token; that is
+        the pre-M8 behaviour and stays the default so single-tenant callers are
+        unaffected.
         """
-        self._cached = creds
+        self._cache[_principal_key(principal)] = creds
+
+    @property
+    def _cached(self) -> Credentials | None:
+        """The shared-slot credential. Retained for callers (and tests) written
+        against the single-token broker; per-principal state lives in _cache."""
+        return self._cache.get(_SHARED_KEY)
+
+    @_cached.setter
+    def _cached(self, value: Credentials | None) -> None:
+        if value is None:
+            self._cache.pop(_SHARED_KEY, None)
+        else:
+            self._cache[_SHARED_KEY] = value
 
     def _is_expired(self, creds: Credentials) -> bool:
         if creds.expires_at is None:
@@ -146,23 +184,40 @@ class OAuth2CredentialBroker:
         principal: Principal,
         ctx: ToolContext,
     ) -> Credentials:
-        if self._cached is None:
+        """Return this principal's access token, refreshing it near expiry.
+
+        Looks up the principal's own slot first and falls back to the shared
+        slot, so a service-account deployment that called
+        ``store_initial(creds)`` with no principal keeps working unchanged
+        while a multi-tenant one gets per-user isolation.
+        """
+        del requirement, ctx
+        key = _principal_key(principal)
+        cached = self._cache.get(key)
+        if cached is None:
+            cached = self._cache.get(_SHARED_KEY)
+            key = _SHARED_KEY
+        if cached is None:
             raise MissingCredentialError(
-                "OAuth2CredentialBroker has no cached credentials; "
-                "call store_initial() with an initial token first."
+                f"OAuth2CredentialBroker has no cached credentials for principal "
+                f"{_principal_key(principal)!r}; call store_initial(creds, "
+                f"principal=...) for that user, or store_initial(creds) to seed "
+                f"a shared service-account token."
             )
 
         # Fast path: cache is fresh, no lock needed.
-        if not self._is_expired(self._cached):
-            return self._cached
+        if not self._is_expired(cached):
+            return cached
 
         # Slow path: acquire the lock and re-check (another task may have
         # refreshed while we were waiting). This is the canonical async
         # double-checked-locking pattern.
         async with self._get_lock():
-            if self._cached is None or self._is_expired(self._cached):
-                self._cached = await self._refresh_locked(self._cached)
-            return self._cached
+            current = self._cache.get(key)
+            if current is None or self._is_expired(current):
+                current = await self._refresh_locked(current or cached)
+                self._cache[key] = current
+            return current
 
     async def refresh(self, creds: Credentials) -> Credentials:
         """Perform the OAuth2 refresh-token grant and update cached credentials.
@@ -172,17 +227,18 @@ class OAuth2CredentialBroker:
         not contain a ``refresh_token`` in its metadata dict.
         """
         async with self._get_lock():
+            # Find which slot holds `creds` so the refresh lands back in the
+            # same one (and doesn't overwrite another principal's token).
+            key = next((k for k, v in self._cache.items() if v is creds), _SHARED_KEY)
             # If another concurrent caller already refreshed past `creds`, return
             # the newer cached value rather than firing a second grant that would
             # invalidate the first one's refresh_token.
-            if (
-                self._cached is not None
-                and self._cached is not creds
-                and not self._is_expired(self._cached)
-            ):
-                return self._cached
-            self._cached = await self._refresh_locked(creds)
-            return self._cached
+            current = self._cache.get(key)
+            if current is not None and current is not creds and not self._is_expired(current):
+                return current
+            refreshed = await self._refresh_locked(creds)
+            self._cache[key] = refreshed
+            return refreshed
 
     async def _refresh_locked(self, creds: Credentials | None) -> Credentials:
         """Execute the refresh-token grant. MUST be called with self._refresh_lock held."""

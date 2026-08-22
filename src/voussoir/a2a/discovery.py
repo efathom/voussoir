@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 import jwt
@@ -140,13 +141,30 @@ async def _fetch_and_verify(
     return card
 
 
+# Hosts allowed to serve plaintext http. Compared against the parsed hostname,
+# never against a URL prefix: `startswith("http://localhost")` also accepted
+# `http://localhost.evil.com/`, and `startswith("http://127.0.0.1")` accepted
+# `http://127.0.0.1.evil.com/` — turning HTTPS enforcement into a naming
+# convention an attacker could satisfy by registering a subdomain (audit H5).
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def _is_loopback(hostname: str | None) -> bool:
+    """True for exactly the loopback hostnames, matched whole and case-folded."""
+    return hostname is not None and hostname.lower() in _LOOPBACK_HOSTS
+
+
 def _validate_card_endpoint(endpoint: str) -> None:
     """Phase 4.5a P1 #14: peers must publish HTTPS endpoints; an http:// peer
-    means JWTs (carrying sub/trace_id) traverse cleartext. Loopback (127.0.0.1
-    or localhost) is allowed for local dev / smoke tests."""
-    if endpoint.startswith("https://"):
+    means JWTs (carrying sub/trace_id) traverse cleartext. Loopback (127.0.0.1,
+    ::1 or localhost) is allowed for local dev / smoke tests.
+
+    Parses the URL rather than prefix-matching it — see `_LOOPBACK_HOSTS`.
+    """
+    parsed = urlsplit(endpoint)
+    if parsed.scheme.lower() == "https":
         return
-    if endpoint.startswith("http://127.0.0.1") or endpoint.startswith("http://localhost"):
+    if parsed.scheme.lower() == "http" and _is_loopback(parsed.hostname):
         return
     raise CardVerificationError(
         f"card endpoint must be HTTPS (loopback allowed for dev): {endpoint}"
@@ -171,18 +189,37 @@ async def _resolve_public_jwk(
     JWK can't crash PyJWT's RSAAlgorithm.from_jwk in an attacker-controlled way.
 
     Resolution order:
-      1. jwks_uri on the card (HTTPS required).
+      1. jwks_uri on the card (HTTPS, and same-origin with the card).
       2. {base}/.well-known/jwks.json fallback.
     """
-    jwks_uri = unverified_payload.get("jwks_uri") or f"{base}/.well-known/jwks.json"
-    # ASGITransport tests use http://test/... — that's accepted because no real
-    # network call happens. Loopback http (127.0.0.1, localhost) is accepted for
-    # local dev / uvicorn smoke tests. All other discovery must be HTTPS.
-    _allowed = (
-        jwks_uri.startswith("https://")
-        or jwks_uri.startswith("http://test")
-        or jwks_uri.startswith("http://127.0.0.1")
-        or jwks_uri.startswith("http://localhost")
+    fallback_uri = f"{base}/.well-known/jwks.json"
+    jwks_uri = unverified_payload.get("jwks_uri") or fallback_uri
+
+    # The card body has NOT been verified yet, so `jwks_uri` is attacker-
+    # controlled input. Letting it name any host meant a peer could sign its
+    # own card and point verification at the matching public key — the exact
+    # self-selected-key property that motivated dropping `inline_jwk` in P0 #1,
+    # moved one HTTP hop away (audit H5). Requiring the key to come from the
+    # card's own origin restores the binding: TLS then attests that the key
+    # really belongs to the host the caller chose to talk to.
+    base_host = urlsplit(base).hostname
+    jwks_parsed = urlsplit(jwks_uri)
+    if jwks_parsed.hostname != base_host:
+        raise CardVerificationError(
+            f"jwks_uri host {jwks_parsed.hostname!r} does not match the card's "
+            f"origin {base_host!r}; a peer may not select its own verification "
+            f"key source. Publish the JWKS on the card's own host, or bind a "
+            f"custom KeyProvider that pins the peer's key out-of-band."
+        )
+    # Parsed-host checks, not prefix matches: `startswith("http://test")` let
+    # any domain beginning with "test" (e.g. test.attacker.com) serve keys over
+    # cleartext, and the loopback prefixes had the same subdomain hole.
+    _allowed = jwks_parsed.scheme.lower() == "https" or (
+        jwks_parsed.scheme.lower() == "http"
+        # ASGITransport tests use http://test/... — no real network call
+        # happens, and the origin check above already pins it to the card's own
+        # host, so this can't widen the production surface.
+        and (_is_loopback(jwks_parsed.hostname) or jwks_parsed.hostname == "test")
     )
     if not _allowed:
         raise CardVerificationError(f"jwks_uri must be HTTPS: {jwks_uri}")

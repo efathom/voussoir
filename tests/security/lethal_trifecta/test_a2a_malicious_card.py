@@ -139,10 +139,12 @@ async def test_a2a_02_tampered_signature_raises_card_verification_error(
 async def test_a2a_03_non_https_jwks_uri_rejected_at_discovery():
     """Attack: attacker card carries a non-HTTPS jwks_uri (SSRF / downgrade).
 
-    Defence: _resolve_public_jwk rejects any jwks_uri that is not HTTPS
-    (or a loopback http:// URL for dev). A card whose jwks_uri points to
-    http://evil.com/jwks.json raises CardVerificationError immediately —
-    no network call is made to the untrusted URI.
+    Defence: _resolve_public_jwk requires the jwks_uri to be same-origin with
+    the card AND to be HTTPS (loopback http:// allowed for dev). A card whose
+    jwks_uri points to http://evil.com/jwks.json raises CardVerificationError
+    immediately — no network call is made to the untrusted URI. The origin
+    check is what closes the SSRF: it fires before the scheme check, so a
+    foreign HTTPS host is refused too (audit H5).
 
     Pattern: directly call _resolve_public_jwk with an attacker-controlled
     unverified_payload (the path discover_card() would take after decoding
@@ -154,7 +156,7 @@ async def test_a2a_03_non_https_jwks_uri_rejected_at_discovery():
     from voussoir.a2a.discovery import _resolve_public_jwk
 
     async with httpx.AsyncClient() as client:
-        with pytest.raises(CardVerificationError, match="HTTPS"):
+        with pytest.raises(CardVerificationError, match="does not match the card's origin"):
             await _resolve_public_jwk(
                 client,
                 base="https://peer.example",

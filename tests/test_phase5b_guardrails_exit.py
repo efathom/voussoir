@@ -86,13 +86,15 @@ def test_exit_7_lethal_trifecta_corpus_blocked_at_100pct() -> None:
     """Spec §10: 30/30 attacks in tests/security/lethal_trifecta/ pass in CI.
 
     v1.0.2 D5 added a 7th category (test_delegation_bypass.py) for the
-    sub-agent UNTRUSTED-taint-propagation defence.
+    sub-agent UNTRUSTED-taint-propagation defence. The audit added an 8th
+    (test_same_turn_exfil.py): the read and the send declared in ONE assistant
+    turn, which the sequential executor-level attacks never reached.
     """
     corpus_dir = Path(__file__).resolve().parent / "security" / "lethal_trifecta"
     test_files = [
         f for f in corpus_dir.iterdir() if f.name.startswith("test_") and f.name.endswith(".py")
     ]
-    assert len(test_files) == 7  # seven categories (delegation bypass added in v1.0.2 D5)
+    assert len(test_files) == 8  # eight categories; see the docstring for the last two
 
 
 def test_exit_8_guardrail_decision_record_has_rewrite_field() -> None:

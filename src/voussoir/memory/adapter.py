@@ -86,29 +86,45 @@ class InMemoryStore(IMemoryStore):
 
 
 class InMemorySessionStore(ISessionStore):
-    """Dict-backed ISessionStore for Tier 0."""
+    """Dict-backed ISessionStore for Tier 0.
+
+    Keyed on ``(user_id, session_id)``, not on ``session_id`` alone. `load`
+    previously consulted `user_id` only when fabricating a MISSING session, so
+    two different authenticated users asking for the same session id got the
+    same object back. This is the default `ISessionStore`, and
+    `make_a2a_router` derives the session id from an optional `trace_id` claim
+    with the constant `"a2a-default"` as its fallback — so every caller whose
+    token lacked that claim shared one session regardless of `sub`, and their
+    user / assistant / tool turns interleaved in a single record (audit M5).
+
+    `exists` and `delete` keep ctxforge's session-id-only signature and
+    therefore scan across users.
+    """
 
     def __init__(self) -> None:
-        self._sessions: dict[str, Session] = {}
+        self._sessions: dict[tuple[str, str], Session] = {}
 
     async def save(self, session: Session) -> None:
-        self._sessions[session.session_id] = session
+        self._sessions[(session.user_id, session.session_id)] = session
 
     async def load(self, session_id: str, user_id: str) -> Session:
         # ctxforge contract: returns Session (not Optional). Tier 0 fabricates a
         # fresh empty session if missing. Higher tiers may persist creation.
-        existing = self._sessions.get(session_id)
+        existing = self._sessions.get((user_id, session_id))
         if existing is not None:
             return existing
         new = Session(session_id=session_id, user_id=user_id)
-        self._sessions[session_id] = new
+        self._sessions[(user_id, session_id)] = new
         return new
 
     async def exists(self, session_id: str) -> bool:
-        return session_id in self._sessions
+        return any(sid == session_id for _, sid in self._sessions)
 
     async def delete(self, session_id: str) -> bool:
-        return self._sessions.pop(session_id, None) is not None
+        keys = [k for k in self._sessions if k[1] == session_id]
+        for k in keys:
+            del self._sessions[k]
+        return bool(keys)
 
     async def list_sessions(
         self,
@@ -116,5 +132,5 @@ class InMemorySessionStore(ISessionStore):
         limit: int = 10,
         offset: int = 0,
     ) -> list[Session]:
-        out = [s for s in self._sessions.values() if s.user_id == user_id]
+        out = [s for (uid, _), s in self._sessions.items() if uid == user_id]
         return out[offset : offset + limit]

@@ -157,7 +157,10 @@ class LLMJudge:
             default=None,
         )
         t0 = time.monotonic()
-        response = await llm.chat([ChatMessage(role="user", content=prompt)])
+        # audit M3: `model` was stored in __init__ and never read, so a judge
+        # configured with a cheap adjudication model silently ran every
+        # judgment on the provider default.
+        response = await llm.chat([ChatMessage(role="user", content=prompt)], model=self._model)
         elapsed_ms = (time.monotonic() - t0) * 1000
         if sink is not None:
             from voussoir.llm.pricing import compute_cost

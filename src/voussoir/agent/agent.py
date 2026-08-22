@@ -356,8 +356,15 @@ class Agent:
             max_depth=parent_ctx.max_delegation_depth,
         )
 
+        # session_id is forwarded so a sub-agent records its turns into the
+        # SAME session as its parent. Dropping it sent every delegated run's
+        # user / assistant / tool messages into the process-wide "default"
+        # session shared with every other agent's delegated work (audit M6).
         return await sub_target.run(
-            task, user_id=parent_ctx.user_id, principal=parent_ctx.principal
+            task,
+            session_id=parent_ctx.session_id,
+            user_id=parent_ctx.user_id,
+            principal=parent_ctx.principal,
         )
 
     async def run(
@@ -768,23 +775,34 @@ class Agent:
             `token` event per assistant turn carrying the full content.
             Phase 5 may wire structured token streaming for the tool path.
 
-        Cascade is run-only. Phase 4.5a fails loud when self.cascade is set
-        (previously: silent bypass of the SAS gate — a policy violation that
-        looked like a working stream). Use .run() for cascade-gated execution.
+        Cascade: a single-pass gate (`max_attempts=1`) is supported and emits
+        cascade_passed / cascade_failed after `done`. A retry-capable cascade
+        (`max_attempts > 1`) fails loud, because the validator runs after the
+        output has already been streamed — there is nothing left to retry into.
+        Use .run() for retry-capable cascade-gated execution.
 
         B6: DefaultGuardrailChain is wired into stream at input + output stages.
         tool_call + tool_output stages are handled by _dispatch_one (shared
         with the run path), so streaming agents automatically see per-tool
         guardrail screening when they go through tool_turn_dispatch.
         """
-        if self.cascade is not None and self.cascade.max_cascade_depth > 1:
+        # Gate on max_attempts, not max_cascade_depth: RETRIES are what stream
+        # can't honour (it has already emitted `done` by validation time).
+        # max_cascade_depth defaults to 3 and only bounds re-entry, so the old
+        # check rejected EVERY default-constructed cascade — and made the
+        # single-pass gate below unreachable for anyone who didn't know to set
+        # the field to 1 (audit M11).
+        if self.cascade is not None and self.cascade.max_attempts > 1:
             from voussoir.agent.policy import PolicyViolation, PolicyViolationError
 
             raise PolicyViolationError(
                 PolicyViolation.STREAMING_NOT_SUPPORTED,
-                f"Agent {self.name!r} has cascade.max_cascade_depth={self.cascade.max_cascade_depth}; "
-                "streaming with cascade retries (depth > 1) is not yet supported. "
-                "Use .run() for retry-capable cascade-gated execution.",
+                f"Agent {self.name!r} has cascade.max_attempts={self.cascade.max_attempts}; "
+                "streaming with cascade retries (max_attempts > 1) is not yet supported "
+                "because the validator runs after `done` has already been emitted. "
+                "Use .run() for retry-capable cascade-gated execution, or set "
+                "max_attempts=1 for a single-pass cascade gate that emits "
+                "cascade_passed / cascade_failed.",
             )
         # v1.1.0 F4: resolve overrides before entering the context.
         executor = self._resolve_executor(executor)
@@ -822,7 +840,7 @@ class Agent:
                         blocked_content=f"[blocked by input guardrail: {input_verdict.reason}]",
                     )
                     if is_blocked:
-                        yield done_event(input, ctx.trace_id)
+                        yield done_event(input, ctx.trace_id, "blocked")
                         return
 
                 # Prepare before_run side-effects (e.g. SkillActivationMiddleware
@@ -842,11 +860,15 @@ class Agent:
                 tokens_in = 0
                 tokens_out = 0
                 finish_reason: FinishReason = "completed"
+                # Declared before the branch so the shared post-done result can
+                # read them regardless of which path ran (audit M14).
+                steps: list[Step] = []
+                _is_simple_path = not self.tools and not self.delegates
 
                 # Simple-agent fast path: incremental token streaming.
                 # C7: `return` removed — both branches fall through to the
                 # shared cascade gate below, which fires after `done`.
-                if not self.tools and not self.delegates:
+                if _is_simple_path:
                     llm: ILLMProvider = self.container.resolve(ILLMProvider)
                     messages = self._build_messages(
                         input,
@@ -877,7 +899,7 @@ class Agent:
                         if is_blocked:
                             finish_reason = "blocked"
                     await ctx.record_assistant_message(full)
-                    yield done_event(full, ctx.trace_id)
+                    yield done_event(full, ctx.trace_id, finish_reason)
                     final_content = full
 
                 else:
@@ -889,7 +911,6 @@ class Agent:
                         skill_content=getattr(ctx, "skill_content", []),
                     )
                     effective_tools = list(self.tools) + synthetic_tools
-                    steps: list[Step] = []
 
                     # stream emits tool_started / delegation_started events
                     # BETWEEN the llm.chat and the dispatch_tool_calls, so
@@ -980,7 +1001,7 @@ class Agent:
                         if is_blocked:
                             finish_reason = "blocked"
                     await ctx.record_assistant_message(final_content)
-                    yield done_event(final_content, ctx.trace_id)
+                    yield done_event(final_content, ctx.trace_id, finish_reason)
 
                 # v1.0.2 D7 #4: build the post-done AgentResult ONCE and reuse
                 # it for both the cascade gate AND the after_run hook fanout.
@@ -989,15 +1010,24 @@ class Agent:
                 # tokens through dispatch deltas; simple-path estimates via
                 # _estimate_stream_tokens (v1.0.3 c).
                 duration_ms = (time.monotonic() - t0) * 1000
+                # audit M14: `steps` and `delegation_chain` were hardcoded empty
+                # even on the tool-using path, where the local `steps` list is
+                # fully populated. Any middleware doing cost attribution, step
+                # auditing or trace assembly saw an empty run under stream() and
+                # a complete one under run(). The simple path genuinely has no
+                # steps, hence the locals()-free explicit default below.
+                _steps = steps if not _is_simple_path else []
                 pseudo_result: AgentResult[str] = AgentResult(
                     output=final_content,
                     trace_id=ctx.trace_id,
-                    steps=[],
+                    steps=_steps,
                     tokens_in=tokens_in,
                     tokens_out=tokens_out,
                     cost_usd=_cost_from_tokens(tokens_in, tokens_out, model=self.model),
                     duration_ms=duration_ms,
-                    delegation_chain=[],
+                    delegation_chain=delegation.build_chain(
+                        self.name, ctx.delegation_chain, _steps
+                    ),
                     cascade_history=[],
                     guardrail_decisions=list(ctx.guardrail_decisions),
                     authz_decisions=list(ctx.authz_decisions),
@@ -1006,14 +1036,14 @@ class Agent:
                 )
 
                 # C7: Single-pass cascade gate — fires AFTER `done`, only
-                # when max_cascade_depth == 1. Emits cascade_passed or
+                # when max_attempts == 1. Emits cascade_passed or
                 # cascade_failed; no retry (deferred to a future task).
                 # v1.0.2 D7: skip cascade on budget violation -- verifying an
                 # empty, budget-cut output would produce a spurious
                 # cascade_failed event misrepresenting the outcome.
                 if (
                     self.cascade is not None
-                    and self.cascade.max_cascade_depth == 1
+                    and self.cascade.max_attempts == 1
                     and finish_reason == "completed"
                 ):
                     decision = await self.cascade.verifier.validate(pseudo_result, task=input)
@@ -1050,6 +1080,9 @@ class Agent:
         synthetic_tools = [] if force_sas else self._build_delegate_tools(ctx)
         registry = ToolRegistry()
         registry.register_many(list(self.tools) + synthetic_tools)
+        # Publish the per-turn registry so ArgsSchemaCheck can reach each tool's
+        # input schema via ctx.tool_input_schema (audit M13).
+        ctx.tool_registry = registry
         messages = self._build_messages(input, skill_content=skill_content or [])
         if synthetic_tools:
             messages.insert(

@@ -83,7 +83,28 @@ async def test_resolve_public_jwk_rejects_non_rs256_alg() -> None:
 
 
 @pytest.mark.asyncio
-async def test_resolve_public_jwk_rejects_non_https_jwks_uri() -> None:
+async def test_resolve_public_jwk_rejects_foreign_jwks_uri() -> None:
+    """A card may not name a key source outside its own origin (audit H5).
+
+    `jwks_uri` is read from the UNVERIFIED payload, so letting it name any host
+    lets a peer sign its own card and point verification at the matching key —
+    the same self-selected-key property that got `inline_jwk` dropped.
+    """
+    import httpx
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(CardVerificationError, match="does not match the card's origin"):
+            await _resolve_public_jwk(
+                client,
+                base="https://peer",
+                kid="k1",
+                unverified_payload={"jwks_uri": "http://insecure.example/jwks.json"},
+            )
+
+
+@pytest.mark.asyncio
+async def test_resolve_public_jwk_rejects_same_origin_plaintext_jwks_uri() -> None:
+    """Same-origin is necessary but not sufficient — it must still be HTTPS."""
     import httpx
 
     async with httpx.AsyncClient() as client:
@@ -92,7 +113,7 @@ async def test_resolve_public_jwk_rejects_non_https_jwks_uri() -> None:
                 client,
                 base="https://peer",
                 kid="k1",
-                unverified_payload={"jwks_uri": "http://insecure.example/jwks.json"},
+                unverified_payload={"jwks_uri": "http://peer/jwks.json"},
             )
 
 
