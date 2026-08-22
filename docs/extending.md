@@ -190,12 +190,18 @@ class BusinessHoursAuthorizer:
         )
 
 
-# Bind on the container (replaces the default DenyByDefaultAuthorizer).
+# On a hand-built container, bind it like any other protocol:
 from voussoir.auth import Authorizer
 from voussoir import Container
 
 container = Container()
 container.bind(Authorizer, BusinessHoursAuthorizer())  # type: ignore[type-abstract]
+
+# On a default_container(), pass it in — `Authorizer` is frozen once that call
+# returns, so binding it afterwards raises RuntimeError:
+from voussoir.container.defaults import default_container
+
+container = default_container(authorizer=BusinessHoursAuthorizer())
 ```
 
 !!! tip "Chaining authorizers"

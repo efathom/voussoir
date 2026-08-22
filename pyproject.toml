@@ -26,7 +26,13 @@ dependencies = [
   "httpx>=0.28.1",
   "structlog>=26.1.0",
   "anthropic>=0.121.0",
-  "ctxforge", # local editable install — see [tool.uv.sources]
+  # Direct-URL requirement so a plain `pip install git+…/voussoir` resolves the
+  # REAL ctxforge. [tool.uv.sources] below is a uv extension that pip never
+  # reads, so a bare `ctxforge` here resolved to the unrelated same-named
+  # project on PyPI and produced an install that could not import (audit B3).
+  # uv still prefers the sibling checkout for local dev via [tool.uv.sources].
+  # Bump this sha together with the one pinned in .github/workflows/ci.yml.
+  "ctxforge @ git+https://github.com/efathom/ctxforge@59779203e054f8744c9f5a763acb93e74c3254a3",
   "pyyaml>=6.0.3",
   # PyJWT + cryptography are base deps: voussoir/__init__ eagerly imports
   # AgentRef (a2a/agent_ref.py → `import jwt`) and KeyProvider
@@ -57,7 +63,11 @@ voussoir = "voussoir.cli.main:main"
 # Note: `httpx` is in base deps; not re-listed in extras that need it.
 mcp           = ["mcp>=2.0.0", "httpx2>=2.5.0"]
 a2a           = ["fastapi>=0.141.1", "uvicorn>=0.52.1"]
-mem-sqlite    = ["sentence-transformers>=5.7.0", "sqlite-vec>=0.1.9"]
+# sqlite-vec is intentionally absent: backends/sqlite.py uses a Python-side
+# cosine loop because loading SQLite extensions is disabled in many stdlib
+# builds (notably macOS). The dep shipped for a while without ever being
+# imported (audit, minor).
+mem-sqlite    = ["sentence-transformers>=5.7.0"]
 mem-postgres  = ["psycopg[binary]>=3.3.4"]
 mem-qdrant    = ["qdrant-client>=1.19.0"]
 yase          = ["grpcio>=1.83.0"]
@@ -90,13 +100,18 @@ dev = [
   "types-pyyaml>=6.0.12.20260724",
 ]
 
+[tool.hatch.metadata]
+# Required for the direct-URL `ctxforge @ git+...` requirement above. Without
+# it hatchling refuses to build at all.
+allow-direct-references = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/voussoir"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-ra --strict-markers --cov=voussoir --cov-report=term-missing"
+addopts = "-ra --strict-markers --cov=voussoir --cov-report=term-missing --cov-fail-under=85"
 
 [tool.ruff]
 line-length = 100

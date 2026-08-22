@@ -38,9 +38,16 @@ def _make_full_result() -> AgentResult[str]:
 
 
 def test_wire_model_redacts_steps_chain_traceid() -> None:
-    """from_agent_result drops trace_id, steps, delegation_chain."""
+    """from_agent_result drops trace_id, steps, delegation_chain.
+
+    `taint` and `cost_usd` deliberately survive: they are what the CALLER needs
+    to keep enforcing its own taint gate and cost budget across the hop, and
+    neither reveals lineage (audit H3).
+    """
     wire = WireAgentResult.from_agent_result(_make_full_result())
-    serialized = wire.model_dump()
+    # mode="json" is what make_a2a_router actually puts on the wire (taint is a
+    # set, which plain model_dump leaves un-JSON-serializable).
+    serialized = wire.model_dump(mode="json")
     assert wire.output == "user-visible answer"
     assert wire.finish_reason == "completed"
     assert set(serialized.keys()) == {
@@ -49,6 +56,8 @@ def test_wire_model_redacts_steps_chain_traceid() -> None:
         "tokens_in",
         "tokens_out",
         "duration_ms",
+        "taint",
+        "cost_usd",
     }
     blob = json.dumps(serialized)
     assert "should-not-leak" not in blob

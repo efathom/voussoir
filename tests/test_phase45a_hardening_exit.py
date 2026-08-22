@@ -18,11 +18,23 @@ def test_exit_1_wire_agent_result_exists() -> None:
     from voussoir.a2a.wire import WireAgentResult
 
     fields = set(WireAgentResult.model_fields.keys())
-    assert fields == {"output", "finish_reason", "tokens_in", "tokens_out", "duration_ms"}
+    assert fields == {
+        "output",
+        "finish_reason",
+        "tokens_in",
+        "tokens_out",
+        "duration_ms",
+        # Not lineage: the caller needs both to keep enforcing its own
+        # security and budget invariants across the hop (audit H3).
+        "taint",
+        "cost_usd",
+    }
     # The leaky fields MUST NOT appear.
     assert "steps" not in fields
     assert "delegation_chain" not in fields
     assert "trace_id" not in fields
+    assert "guardrail_decisions" not in fields
+    assert "cascade_history" not in fields
 
 
 # Exit 2 — JWT validation tightens iss against expected_issuers.
@@ -93,17 +105,20 @@ def test_exit_5_env_key_provider_default_safety(fresh_env) -> None:
 
 # Exit 6 — dispatch_tool_calls uses gather (no as_completed / outcomes_by_id).
 def test_exit_6_dispatch_uses_gather() -> None:
-    """Parse the AST of dispatch.py and confirm gather is called inside
-    dispatch_tool_calls, while as_completed is not. The string check is too
-    coarse because the module docstring explains the migration from
-    as_completed → gather (mentioning both names)."""
+    """Parse the AST of dispatch.py and confirm gather is used for concurrent
+    dispatch, while as_completed is not. The string check is too coarse because
+    the module docstring explains the migration from as_completed → gather
+    (mentioning both names).
+
+    The gather call lives in `_gather_wave`, the helper `dispatch_tool_calls`
+    calls once per wave since same-turn EXFIL ordering landed (audit B2)."""
     from voussoir.agent import dispatch
 
     tree = ast.parse(Path(dispatch.__file__).read_text())
     target = next(
         node
         for node in ast.walk(tree)
-        if isinstance(node, ast.AsyncFunctionDef) and node.name == "dispatch_tool_calls"
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_gather_wave"
     )
     call_names: list[str] = []
     for sub in ast.walk(target):

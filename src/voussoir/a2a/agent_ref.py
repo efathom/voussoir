@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 import jwt
+import pydantic
 
 from voussoir.a2a.card import AgentCard
 from voussoir.a2a.discovery import discover_card
@@ -187,24 +188,49 @@ class AgentRef:
         if rpc_resp.result is None:
             raise RemoteMalformed("remote returned neither result nor error")
 
-        # Phase 4.5a P0 #3: server returns WireAgentResult, not the full
-        # AgentResult. Parse the narrow wire shape and build an AgentResult
-        # locally with empty steps/delegation_chain + injected self.name
-        # (so the local caller's build_chain sees the remote agent).
+        # Phase 4.5a P0 #3: with wire_profile="public" (the default) the server
+        # returns the narrow WireAgentResult. With wire_profile="trusted" it
+        # returns a full AgentResult dump — and WireAgentResult sets
+        # extra="forbid", so parsing that unconditionally raised a raw
+        # pydantic ValidationError from OUTSIDE the RemoteMalformed guard,
+        # which _dispatch_one then swallowed as TOOL_ERROR. The trusted profile
+        # had therefore never worked against voussoir's own client (audit M4).
+        # Try the narrow shape first, fall back to the full one, and surface a
+        # genuine parse failure as RemoteMalformed like every other wire error.
         from voussoir.a2a.wire import WireAgentResult
 
-        wire = WireAgentResult.model_validate(rpc_resp.result)
+        try:
+            wire = WireAgentResult.model_validate(rpc_resp.result)
+        except pydantic.ValidationError:
+            try:
+                trusted = AgentResult[str].model_validate(rpc_resp.result)
+            except pydantic.ValidationError as exc:
+                raise RemoteMalformed(
+                    f"remote returned a result matching neither the public "
+                    f"(WireAgentResult) nor the trusted (AgentResult) wire "
+                    f"shape: {exc}"
+                ) from exc
+            # Trusted peers are entitled to have their lineage believed, but
+            # the local caller still owns its own chain — prepend self.name.
+            return trusted.model_copy(
+                update={"delegation_chain": [self.name, *trusted.delegation_chain]}
+            )
+
         return AgentResult[str](
             output=wire.output,
             trace_id=f"remote:{self.card.name}",
             steps=[],
             tokens_in=wire.tokens_in,
             tokens_out=wire.tokens_out,
-            cost_usd=0.0,  # cost not exposed on the wire
+            cost_usd=wire.cost_usd,
             duration_ms=wire.duration_ms,
             delegation_chain=[self.name],
             cascade_history=[],
             guardrail_decisions=[],
+            # audit H3: carry the remote run's taint so accumulate_outcomes
+            # merges it into the caller's ctx. Without it a remote sub-agent
+            # laundered UNTRUSTED taint and unblocked the parent's EXFIL tools.
+            taint=set(wire.taint),
             finish_reason=wire.finish_reason,
         )
 

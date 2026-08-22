@@ -76,7 +76,7 @@ async def test_simple_stream_blocked_output_no_cascade_event(make_container) -> 
     c = make_container(llm)
     c.bind(IGuardrailChain, DefaultGuardrailChain([_BlockOutputGuardrail()]))  # type: ignore[type-abstract]
 
-    cascade = RequestCascade(verifier=_NeverPassVerifier(), max_cascade_depth=1)
+    cascade = RequestCascade(verifier=_NeverPassVerifier(), max_attempts=1)
     a = Agent(name="x", container=c, cascade=cascade)
 
     events = []
@@ -120,7 +120,7 @@ async def test_simple_stream_unblocked_output_cascade_still_fires(make_container
     c = make_container(llm)
     # No guardrail chain bound — no blocking
 
-    cascade = RequestCascade(verifier=_NeverPassVerifier(), max_cascade_depth=1)
+    cascade = RequestCascade(verifier=_NeverPassVerifier(), max_attempts=1)
     a = Agent(name="x", container=c, cascade=cascade)
 
     events = []
@@ -181,7 +181,7 @@ async def test_tool_stream_blocked_output_no_cascade_event(make_container) -> No
     c.bind(ILLMProviderProto, llm)
     c.bind(IGuardrailChain, DefaultGuardrailChain([_BlockOutputGuardrail()]))  # type: ignore[type-abstract]
 
-    cascade = RequestCascade(verifier=_NeverPassVerifier(), max_cascade_depth=1)
+    cascade = RequestCascade(verifier=_NeverPassVerifier(), max_attempts=1)
     a = Agent(name="x", container=c, tools=[_echo_tool], cascade=cascade)
 
     events = []
@@ -225,7 +225,7 @@ async def test_tool_stream_unblocked_output_cascade_still_fires(make_container) 
     c.bind(ILLMProviderProto, llm)
     # No guardrail chain
 
-    cascade = RequestCascade(verifier=_NeverPassVerifier(), max_cascade_depth=1)
+    cascade = RequestCascade(verifier=_NeverPassVerifier(), max_attempts=1)
     a = Agent(name="x", container=c, tools=[_echo_tool], cascade=cascade)
 
     events = []

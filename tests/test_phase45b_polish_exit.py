@@ -171,7 +171,7 @@ def test_exit_15_tool_turn_helper_extracted() -> None:
     # chain into Agent.stream (input + output stages for both the simple-agent
     # and tool-using paths: ~46 LOC), bumping the cap to ≤850. Phase 5 C4
     # added OTel metric emission imports + 5 emit lines, bumping cap to ≤875.
-    # Phase 5 C7 lifted the streaming cascade gate for max_cascade_depth==1:
+    # Phase 5 C7 lifted the streaming cascade gate for a single-pass cascade:
     # restructured simple/tool branches into if/else + cascade gate block
     # (~22 LOC net), bumping the cap to ≤900. Phase 6 A2 added Principal
     # threading through Agent.run/stream/_run_normal/_run_with_cascade +
@@ -184,9 +184,11 @@ def test_exit_15_tool_turn_helper_extracted() -> None:
     # site in the simple-path stream branch (~22 LOC net), bumping cap to ≤1075.
     # v1.1.0 F4 added executor= + guardrail_chain= kwargs to __init__ / run /
     # stream, plus _resolve_executor + _resolve_guardrail_chain methods
-    # (~61 LOC net), bumping cap to ≤1150.
+    # (~61 LOC net), bumping cap to ≤1150. The audit pass added the M11 gate
+    # rewrite and the M14 real-steps result in stream (~25 LOC of code and
+    # rationale comments), bumping cap to ≤1200.
     agent_py = (SRC / "agent" / "agent.py").read_text().splitlines()
-    assert len(agent_py) <= 1150, f"agent.py is {len(agent_py)} LOC (expected ≤ 1150)"
+    assert len(agent_py) <= 1200, f"agent.py is {len(agent_py)} LOC (expected ≤ 1200)"
 
     # Both _run_normal and stream call into the two-phase helper.
     src = "\n".join(agent_py)

@@ -80,14 +80,12 @@ async def _run(agent_name: str, config: Path | None, text: str) -> int:
         elif kind == "cascade_failed":
             click.echo("[cascade: FAIL]", err=True)
         elif kind == "done":
-            # TODO(B3-followup): done_event in stream_events.py currently carries
-            # only {"output": ...} -- no finish_reason -- so this branch always
-            # leaves finish_reason=None and we exit 0. Surfacing non-completed
-            # streams as non-zero exit will require adding finish_reason to the
-            # done event payload (or surfacing AgentResult.finish_reason via a
-            # separate channel).
+            # done_event carries finish_reason as of the audit pass, so a
+            # blocked or budget-cut stream now exits non-zero as documented.
             finish_reason = payload.get("finish_reason")
             click.echo("")  # trailing newline
+            if finish_reason and finish_reason != "completed":
+                click.echo(f"[finish_reason: {finish_reason}]", err=True)
 
     if finish_reason and finish_reason != "completed":
         return 1

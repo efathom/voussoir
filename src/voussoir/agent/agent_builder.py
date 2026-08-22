@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from voussoir.agent.policy import AgentPolicy
 from voussoir.container import Container
 from voussoir.tools import Capability, parse_capability_list
 
@@ -42,6 +43,35 @@ _LAYERABLE_FIELDS = (
     "skills",
     "allowed_capabilities",  # Phase 5 A5: per-agent capability mask
 )
+
+
+def _policy_with_budget_overrides(
+    base: AgentPolicy | None,
+    *,
+    max_steps: int | None,
+    max_duration_s: float | None,
+) -> AgentPolicy | None:
+    """Layer yaml/env budget fields onto an AgentPolicy.
+
+    `max_steps` and `max_duration_s` are `_LAYERABLE_FIELDS`, are validated by
+    `AgentConfig`, and land in `self._fields` — but `build()` used to forward a
+    fixed kwarg list to `Agent(...)` that never touched a policy, so a
+    `voussoir.yaml` entry of `max_steps: 5` was accepted without complaint and
+    the agent ran with the default 25 (audit M1).
+
+    Returns None when there is nothing to say, so `build()` leaves `policy`
+    out of its kwargs and `Agent.__init__` applies its own default.
+    """
+    if max_steps is None and max_duration_s is None:
+        return base
+    updates: dict[str, Any] = {}
+    if max_steps is not None:
+        updates["max_steps"] = max_steps
+    if max_duration_s is not None:
+        updates["max_duration_s"] = max_duration_s
+    # An explicitly-passed policy keeps every other field it set; the config
+    # layer only overrides the two budgets it actually carries.
+    return (base or AgentPolicy()).model_copy(update=updates)
 
 
 class AgentBuilder:
@@ -212,4 +242,11 @@ class AgentBuilder:
             kwargs["max_delegation_depth"] = fields["max_delegation_depth"]
         if "allowed_capabilities" in fields:
             kwargs["allowed_capabilities"] = fields["allowed_capabilities"]
+        policy = _policy_with_budget_overrides(
+            kwargs.get("policy"),
+            max_steps=fields.get("max_steps"),
+            max_duration_s=fields.get("max_duration_s"),
+        )
+        if policy is not None:
+            kwargs["policy"] = policy
         return Agent(self._name, **kwargs)

@@ -498,36 +498,36 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiofiles", specifier = ">=23.0.0" },
-    { name = "aiomysql", marker = "extra == 'all'", specifier = ">=0.2.0" },
-    { name = "aiomysql", marker = "extra == 'mysql'", specifier = ">=0.2.0" },
-    { name = "anthropic", marker = "extra == 'all'", specifier = ">=0.5.0" },
-    { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.5.0" },
-    { name = "asyncpg", marker = "extra == 'all'", specifier = ">=0.29.0" },
-    { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.29.0" },
-    { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
-    { name = "chromadb", marker = "extra == 'all'", specifier = ">=0.4.0" },
-    { name = "chromadb", marker = "extra == 'chromadb'", specifier = ">=0.4.0" },
-    { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
-    { name = "openai", marker = "extra == 'all'", specifier = ">=1.0.0" },
-    { name = "openai", marker = "extra == 'openai'", specifier = ">=1.0.0" },
-    { name = "pinecone-client", marker = "extra == 'all'", specifier = ">=3.0.0" },
-    { name = "pinecone-client", marker = "extra == 'pinecone'", specifier = ">=3.0.0" },
-    { name = "pydantic", specifier = ">=2.0.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
-    { name = "python-dateutil", specifier = ">=2.8.2" },
-    { name = "python-dotenv", specifier = ">=1.0.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "redis", marker = "extra == 'all'", specifier = ">=5.0.0" },
-    { name = "redis", marker = "extra == 'redis'", specifier = ">=5.0.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4.0" },
-    { name = "sentence-transformers", marker = "extra == 'all'", specifier = ">=2.0.0" },
-    { name = "sentence-transformers", marker = "extra == 'huggingface'", specifier = ">=2.0.0" },
-    { name = "weaviate-client", marker = "extra == 'all'", specifier = ">=4.0.0" },
-    { name = "weaviate-client", marker = "extra == 'weaviate'", specifier = ">=4.0.0" },
+    { name = "aiofiles", specifier = ">=25.1.0" },
+    { name = "aiomysql", marker = "extra == 'all'", specifier = ">=0.3.2" },
+    { name = "aiomysql", marker = "extra == 'mysql'", specifier = ">=0.3.2" },
+    { name = "anthropic", marker = "extra == 'all'", specifier = ">=0.122.0" },
+    { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.122.0" },
+    { name = "asyncpg", marker = "extra == 'all'", specifier = ">=0.31.0" },
+    { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.31.0" },
+    { name = "black", marker = "extra == 'dev'", specifier = ">=26.5.1" },
+    { name = "chromadb", marker = "extra == 'all'", specifier = ">=1.5.9" },
+    { name = "chromadb", marker = "extra == 'chromadb'", specifier = ">=1.5.9" },
+    { name = "isort", marker = "extra == 'dev'", specifier = ">=8.0.1" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=2.3.0" },
+    { name = "openai", marker = "extra == 'all'", specifier = ">=3.0.0" },
+    { name = "openai", marker = "extra == 'openai'", specifier = ">=3.0.0" },
+    { name = "pinecone-client", marker = "extra == 'all'", specifier = ">=6.0.0" },
+    { name = "pinecone-client", marker = "extra == 'pinecone'", specifier = ">=6.0.0" },
+    { name = "pydantic", specifier = ">=2.13.4" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.1.1" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.4.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.1.0" },
+    { name = "python-dateutil", specifier = ">=2.9.0.post0" },
+    { name = "python-dotenv", specifier = ">=1.2.2" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "redis", marker = "extra == 'all'", specifier = ">=8.1.0" },
+    { name = "redis", marker = "extra == 'redis'", specifier = ">=8.1.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.16.3" },
+    { name = "sentence-transformers", marker = "extra == 'all'", specifier = ">=5.7.0" },
+    { name = "sentence-transformers", marker = "extra == 'huggingface'", specifier = ">=5.7.0" },
+    { name = "weaviate-client", marker = "extra == 'all'", specifier = ">=4.23.0" },
+    { name = "weaviate-client", marker = "extra == 'weaviate'", specifier = ">=4.23.0" },
 ]
 provides-extras = ["openai", "anthropic", "redis", "postgres", "mysql", "pinecone", "chromadb", "weaviate", "huggingface", "all", "dev"]
 
@@ -2789,18 +2789,6 @@ wheels = [
 ]
 
 [[package]]
-name = "sqlite-vec"
-version = "0.1.9"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/68/85/9fad0045d8e7c8df3e0fa5a56c630e8e15ad6e5ca2e6106fceb666aa6638/sqlite_vec-0.1.9-py3-none-macosx_10_6_x86_64.whl", hash = "sha256:1b62a7f0a060d9475575d4e599bbf94a13d85af896bc1ce86ee80d1b5b48e5fb", size = 131171, upload-time = "2026-03-31T08:02:31.717Z" },
-    { url = "https://files.pythonhosted.org/packages/a4/3d/3677e0cd2f92e5ebc43cd29fbf565b75582bff1ccfa0b8327c7508e1084f/sqlite_vec-0.1.9-py3-none-macosx_11_0_arm64.whl", hash = "sha256:1d52e30513bae4cc9778ddbf6145610434081be4c3afe57cd877893bad9f6b6c", size = 165434, upload-time = "2026-03-31T08:02:32.712Z" },
-    { url = "https://files.pythonhosted.org/packages/00/d4/f2b936d3bdc38eadcbd2a87875815db36430fab0363182ba5d12cd8e0b51/sqlite_vec-0.1.9-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:4e921e592f24a5f9a18f590b6ddd530eb637e2d474e3b1972f9bbeb773aa3cb9", size = 160076, upload-time = "2026-03-31T08:02:33.796Z" },
-    { url = "https://files.pythonhosted.org/packages/6f/ad/6afd073b0f817b3e03f9e37ad626ae341805891f23c74b5292818f49ac63/sqlite_vec-0.1.9-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux1_x86_64.whl", hash = "sha256:1515727990b49e79bcaf75fdee2ffc7d461f8b66905013231251f1c8938e7786", size = 163388, upload-time = "2026-03-31T08:02:34.888Z" },
-    { url = "https://files.pythonhosted.org/packages/42/89/81b2907cda14e566b9bf215e2ad82fc9b349edf07d2010756ffdb902f328/sqlite_vec-0.1.9-py3-none-win_amd64.whl", hash = "sha256:4a28dc12fa4b53d7b1dced22da2488fade444e96b5d16fd2d698cd670675cf32", size = 292804, upload-time = "2026-03-31T08:02:36.035Z" },
-]
-
-[[package]]
 name = "sse-starlette"
 version = "3.4.2"
 source = { registry = "https://pypi.org/simple" }
@@ -3156,7 +3144,6 @@ all = [
     { name = "psycopg", extra = ["binary"] },
     { name = "qdrant-client" },
     { name = "sentence-transformers" },
-    { name = "sqlite-vec" },
     { name = "tiktoken" },
     { name = "uvicorn" },
 ]
@@ -3189,7 +3176,6 @@ mem-qdrant = [
 ]
 mem-sqlite = [
     { name = "sentence-transformers" },
-    { name = "sqlite-vec" },
 ]
 testing = [
     { name = "pytest" },
@@ -3238,7 +3224,6 @@ requires-dist = [
     { name = "respx", marker = "extra == 'dev'", specifier = ">=0.23.1" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.16.2" },
     { name = "sentence-transformers", marker = "extra == 'mem-sqlite'", specifier = ">=5.7.0" },
-    { name = "sqlite-vec", marker = "extra == 'mem-sqlite'", specifier = ">=0.1.9" },
     { name = "structlog", specifier = ">=26.1.0" },
     { name = "tiktoken", marker = "extra == 'tokenizers'", specifier = ">=0.13.0" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.12.20260724" },

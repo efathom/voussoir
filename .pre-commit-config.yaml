@@ -10,8 +10,12 @@ repos:
       - id: check-added-large-files
       - id: debug-statements
 
+  # Keep this rev in step with the `ruff` floor in pyproject's [dev] extra.
+  # It sat on v0.4.10 while dev deps required >=0.16.2 — twelve minor versions
+  # of rule drift between the local hook and CI (audit, minor). black is
+  # exactly pinned below for the same reason.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.4.10
+    rev: v0.16.3
     hooks:
       - id: ruff
         args: [--fix]

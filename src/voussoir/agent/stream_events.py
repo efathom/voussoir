@@ -28,10 +28,17 @@ def token_event(text: str, span_id: str) -> AgentEvent:
     )
 
 
-def done_event(output: str, span_id: str) -> AgentEvent:
+def done_event(output: str, span_id: str, finish_reason: str = "completed") -> AgentEvent:
+    """Terminal stream event.
+
+    Carries `finish_reason` so a consumer can tell a clean finish from a
+    blocked or budget-cut one. Without it `voussoir run` had no way to detect a
+    failed stream and always exited 0, contradicting its own "exit 1 on
+    failures" docstring (audit, minor).
+    """
     return AgentEvent(
         kind="done",
-        payload={"output": output},
+        payload={"output": output, "finish_reason": finish_reason},
         span_id=span_id,
         timestamp=datetime.now(UTC),
     )

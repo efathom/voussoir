@@ -11,7 +11,7 @@ when the user actually triggers that branch.
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, Literal
 
 from voussoir.auth.authorizers.deny_by_default import DenyByDefaultAuthorizer
 from voussoir.auth.protocol import Authorizer
@@ -29,7 +29,19 @@ from voussoir.protocols import (
 )
 
 
-def default_container() -> Container:
+def default_container(
+    *,
+    authorizer: Authorizer | None = None,
+    llm: Any | None = None,
+    memory_store: Any | None = None,
+    session_store: Any | None = None,
+    embedder: Any | None = None,
+    executor: Any | None = None,
+    key_provider: Any | None = None,
+    telemetry_sink: Any | None = None,
+    guardrail_profile: Literal["off", "standard", "strict"] = "standard",
+    url_allowlist: list[str] | None = None,
+) -> Container:
     """Return a container pre-bound with framework defaults.
 
     The defaults populate (lazily where possible):
@@ -44,6 +56,35 @@ def default_container() -> Container:
     - chained env+keychain CredentialBroker
 
     Each binding is added via lambda so heavy modules import lazily.
+
+    Security-critical keys are frozen against plugin rebind once this function
+    returns, so anything you need to choose must be chosen *here*:
+
+    - `authorizer` — the Axis-2 policy. Defaults to `DenyByDefaultAuthorizer`
+      (fail-closed); pass `AllowAllAuthorizer()` for local development or a
+      `RoleAuthorizer` / `DomainAuthorizer` / `ChainedAuthorizer` for
+      production.
+    - `llm` — a custom `ILLMProvider`, instead of the one inferred from your
+      API-key environment.
+    - `memory_store` / `session_store` — tier up from the in-memory defaults
+      (e.g. `SQLiteMemoryStore`, `PostgresMemoryStore`).
+    - `embedder` — a custom `IEmbeddingProvider`, instead of the one picked by
+      the OpenAI-key / sentence-transformers / fake fallback ladder.
+    - `executor` — a custom `IToolExecutor` (e.g. a sandboxing one).
+    - `key_provider` — a KMS / Vault / HSM-backed `KeyProvider` for A2A,
+      instead of the env-var one.
+    - `telemetry_sink` — an OTel-backed `ITelemetrySink`, instead of the no-op.
+    - `guardrail_profile` / `url_allowlist` — forwarded to
+      `bind_default_guardrails`. `"strict"` needs a non-empty `url_allowlist`.
+
+    Every one of these names a FROZEN key, and that is the whole reason they
+    exist as parameters. Before they did, the freeze rejected exactly the
+    rebinds the surrounding docs told you to make: no tool could ever be
+    invoked through a `default_container()` because the fail-closed
+    `Authorizer` was frozen in place (audit B1), and `KeyProvider`'s "production
+    deployments bind a custom KeyProvider (KMS, Vault, HSM)" and
+    `ITelemetrySink`'s "production deployments override with an OTel-backed
+    sink" were equally unreachable.
     """
     # Wire OTel early so every subsequent span/metric emission has a provider.
     # configure_otel is idempotent and honors VOUSSOIR_OTEL_DISABLED /
@@ -52,14 +93,20 @@ def default_container() -> Container:
     configure_logging()
 
     c = Container()
-    _bind_default_stores(c)
-    _bind_llm_provider(c)
-    _bind_default_embedder(c)
-    _bind_default_telemetry_sink(c)
-    _bind_default_key_provider(c)
-    _bind_default_authorizer(c)
-    _bind_default_executor(c)
-    _bind_default_guardrail_chain(c)
+    _bind_default_stores(c, memory_store=memory_store, session_store=session_store)
+    if llm is not None:
+        c.bind(ILLMProvider, llm)
+    else:
+        _bind_llm_provider(c)
+    if embedder is not None:
+        c.bind(IEmbeddingProvider, embedder)
+    else:
+        _bind_default_embedder(c)
+    _bind_default_telemetry_sink(c, sink=telemetry_sink)
+    _bind_default_key_provider(c, provider=key_provider)
+    _bind_default_authorizer(c, authorizer=authorizer)
+    _bind_default_executor(c, executor=executor)
+    _bind_default_guardrail_chain(c, profile=guardrail_profile, url_allowlist=url_allowlist)
 
     # v1.0.2 D6: freeze security-critical keys against plugin rebind.
     # voussoir.delegates plugins load AFTER default_container returns;
@@ -71,6 +118,7 @@ def default_container() -> Container:
     # IMemoryStore injects false history into every subsequent agent run.
     from voussoir.a2a.keys import KeyProvider
     from voussoir.executors import IToolExecutor  # v1.1.0 F1
+    from voussoir.guardrails.protocol import IGuardrailChain
     from voussoir.observability.sink import ITelemetrySink
 
     c.freeze(Authorizer)
@@ -80,36 +128,62 @@ def default_container() -> Container:
     c.freeze(IMemoryStore)  # v1.0.4 E3: prevent hostile plugin from poisoning history
     c.freeze(ISessionStore)  # v1.0.4 E3: prevent hostile plugin from poisoning session state
     c.freeze(IToolExecutor)  # v1.1.0 F1: prevent hostile plugin from swapping the executor
+    # audit M12: the chain screens input, tool_call, tool_output and output.
+    # A plugin binding DefaultGuardrailChain([]) here would disable every
+    # soft-policy screen in the process; it belongs in the freeze list on the
+    # same reasoning that put IToolExecutor there.
+    c.freeze(IGuardrailChain)
     return c
 
 
-def _bind_default_stores(c: Container) -> None:
-    """Tier 0 in-memory session + memory stores. Phase 1 default; tier-up via bind()."""
+def _bind_default_stores(
+    c: Container,
+    *,
+    memory_store: Any | None = None,
+    session_store: Any | None = None,
+) -> None:
+    """Tier 0 in-memory session + memory stores, unless the caller supplies its own.
+
+    Both keys are frozen after `default_container()` returns, so a caller that
+    wants Postgres or SQLite must pass the store here rather than rebinding
+    afterwards.
+    """
     from voussoir.memory.adapter import InMemorySessionStore, InMemoryStore
 
-    c.bind(IMemoryStore, InMemoryStore())
-    c.bind(ISessionStore, InMemorySessionStore())
+    c.bind(IMemoryStore, memory_store if memory_store is not None else InMemoryStore())
+    c.bind(ISessionStore, session_store if session_store is not None else InMemorySessionStore())
 
 
-def _bind_default_authorizer(c: Container) -> None:
-    """Bind DenyByDefaultAuthorizer as the default Authorizer (v1.3.0).
+def _bind_default_authorizer(c: Container, *, authorizer: Authorizer | None = None) -> None:
+    """Bind the caller's Authorizer, or DenyByDefaultAuthorizer when none is given.
 
-    The default is fail-closed: every tool invocation denies until an operator
-    binds a concrete Authorizer (RoleAuthorizer, DomainAuthorizer,
+    The default is fail-closed: every tool invocation denies unless the caller
+    supplies a concrete Authorizer (RoleAuthorizer, DomainAuthorizer,
     ChainedAuthorizer) that grants it. This is the zero-trust posture for
     production; `AllowAllAuthorizer` remains available for dev/experiments.
+
+    The choice has to be made here because `default_container()` freezes this
+    key on the way out — see the `authorizer` parameter on that function.
     """
-    c.bind(Authorizer, DenyByDefaultAuthorizer())  # type: ignore[type-abstract]
+    c.bind(
+        Authorizer,  # type: ignore[type-abstract]
+        authorizer if authorizer is not None else DenyByDefaultAuthorizer(),
+    )
 
 
-def _bind_default_executor(c: Container) -> None:
-    """Bind StandardExecutor as the default IToolExecutor (v1.1.0 F1)."""
+def _bind_default_executor(c: Container, *, executor: Any | None = None) -> None:
+    """Bind the caller's IToolExecutor, or StandardExecutor (v1.1.0 F1)."""
     from voussoir.executors import IToolExecutor, StandardExecutor
 
-    c.bind(IToolExecutor, StandardExecutor())  # type: ignore[type-abstract]
+    c.bind(IToolExecutor, executor if executor is not None else StandardExecutor())  # type: ignore[type-abstract]
 
 
-def _bind_default_guardrail_chain(c: Container) -> None:
+def _bind_default_guardrail_chain(
+    c: Container,
+    *,
+    profile: Literal["off", "standard", "strict"] = "standard",
+    url_allowlist: list[str] | None = None,
+) -> None:
     """Bind the 'standard' guardrail profile by default.
 
     The empty chain previously bound here meant the framework's advertised
@@ -121,13 +195,21 @@ def _bind_default_guardrail_chain(c: Container) -> None:
     """
     from voussoir.guardrails.bootstrap import bind_default_guardrails
 
-    bind_default_guardrails(c, profile="standard")
+    bind_default_guardrails(c, profile=profile, url_allowlist=url_allowlist)
 
 
-def _bind_default_key_provider(c: Container) -> None:
-    """Default A2A KeyProvider. Lazy-bound so processes that never use A2A
-    don't pay the ephemeral-keygen cost."""
+def _bind_default_key_provider(c: Container, *, provider: Any | None = None) -> None:
+    """Bind the caller's KeyProvider, or the env-var one.
+
+    The default is lazy-bound so processes that never use A2A don't pay the
+    ephemeral RSA-keygen cost. A caller-supplied provider (KMS / Vault / HSM)
+    is bound eagerly since it is already constructed.
+    """
     from voussoir.a2a.keys import EnvKeyProvider, KeyProvider
+
+    if provider is not None:
+        c.bind(KeyProvider, provider)  # type: ignore[type-abstract]
+        return
 
     def _make_provider() -> KeyProvider:
         # Phase 4.5a P0 #5: explicit allow_ephemeral=False matches the new
@@ -137,10 +219,13 @@ def _bind_default_key_provider(c: Container) -> None:
     c.bind(KeyProvider, _make_provider)  # type: ignore[type-abstract]
 
 
-def _bind_default_telemetry_sink(c: Container) -> None:
-    """Default no-op sink. Phase 3.5 cascade scopes a buffer over the top
-    during validator.validate() calls; production deployments override with
-    an OTel-backed sink. Tests bind InMemoryTelemetrySink for assertion."""
+def _bind_default_telemetry_sink(c: Container, *, sink: Any | None = None) -> None:
+    """Bind the caller's ITelemetrySink, or a no-op one.
+
+    Phase 3.5 cascade scopes a buffer over the top during validator.validate()
+    calls; production deployments pass an OTel-backed sink here. Tests pass
+    InMemoryTelemetrySink for assertion.
+    """
     from voussoir.observability.sink import ITelemetrySink, NullTelemetrySink
 
     # mypy strict mode forbids using a Protocol as `type[T]`. ctxforge
@@ -149,7 +234,7 @@ def _bind_default_telemetry_sink(c: Container) -> None:
     # they read as Any. ITelemetrySink is first-party and mypy sees it as
     # an abstract Protocol; the runtime contract (any value satisfying the
     # Protocol) is what we want, so suppress here.
-    c.bind(ITelemetrySink, NullTelemetrySink())  # type: ignore[type-abstract]
+    c.bind(ITelemetrySink, sink if sink is not None else NullTelemetrySink())  # type: ignore[type-abstract]
 
 
 def _bind_llm_provider(c: Container) -> None:
@@ -220,8 +305,8 @@ def _bind_default_embedder(c: Container) -> None:
 
     Production wiring uses ctxforge primitives when an API key is available;
     the local sentence-transformers fallback exists for offline dev workflows.
-    Users override via `c.bind(IEmbeddingProvider, MyImpl())` after
-    `default_container()` returns, or by constructing their own Container.
+    Users override with `default_container(embedder=MyImpl())`, or by
+    constructing their own Container.
     """
     if os.environ.get("OPENAI_API_KEY"):
 
@@ -344,9 +429,9 @@ def bind_sqlite_memory(c: Container, *, path: str, embedding_dim: int = 384) -> 
 
     v1.0.4 E3: must be called on a fresh `Container()`, NOT on a
     `default_container()` result — the latter freezes `IMemoryStore` to
-    prevent plugin-driven history poisoning. Build your own Container,
-    bind the embedder, then call this helper; or call this BEFORE
-    `default_container()` if you can wire the container yourself.
+    prevent plugin-driven history poisoning. To use SQLite with an otherwise
+    default container, construct the store yourself and pass it in:
+    `default_container(memory_store=SQLiteMemoryStore(path=..., embedder=...))`.
 
     Resolves the IEmbeddingProvider that's currently bound on the container.
     To use a custom embedder, bind it BEFORE calling this helper.

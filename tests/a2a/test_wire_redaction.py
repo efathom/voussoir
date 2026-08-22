@@ -37,16 +37,22 @@ def test_wire_agent_result_public_re_exports():
     assert WireAgentResult is A2AWireAgentResult
 
 
-def test_to_wire_public_strips_lineage_and_costs():
-    """profile='public' returns a WireAgentResult — no steps/delegation_chain/cost."""
+def test_to_wire_public_strips_lineage():
+    """profile='public' returns a WireAgentResult — no steps/delegation_chain/trace.
+
+    `cost_usd` is carried, not stripped: without it the calling agent's
+    `AgentPolicy.max_cost_usd` cannot bound spend across an A2A hop at all
+    (audit H3). It is a scalar total, not lineage.
+    """
     result = _make_result()
     wire = result.to_wire(profile="public")
     assert isinstance(wire, WireAgentResult)
     dumped = wire.model_dump()
     assert "delegation_chain" not in dumped
     assert "steps" not in dumped
-    assert "cost_usd" not in dumped
     assert "trace_id" not in dumped
+    assert "guardrail_decisions" not in dumped
+    assert dumped["cost_usd"] == 0.0042
     assert dumped["output"] == "hello"
     assert dumped["finish_reason"] == "completed"
     assert dumped["tokens_in"] == 10

@@ -262,15 +262,20 @@ class StandardExecutor:
                 broker = _resolve_broker(ctx.container)
                 ctx.credentials = await broker.resolve(auth_req, ctx.principal, ctx)
 
-            _sensitive_args = getattr(tool, "sensitive_args", []) or []
+            # Argument logging is opt-IN, not opt-out. This line runs at INFO
+            # on every tool call and routinely carries user data; requiring
+            # each tool to remember `sensitive_args` made leaking the default
+            # (audit, minor). Now: names always, values only for tools that
+            # declare `log_args=True`, and declared `sensitive_args` are
+            # redacted even then.
+            _sensitive_args = set(getattr(tool, "sensitive_args", []) or [])
             _dumped_args = args.model_dump()
-            if _sensitive_args:
+            if getattr(tool, "log_args", False):
                 _logged_args: dict[str, object] = {
-                    k: "[REDACTED]" if k in set(_sensitive_args) else v
-                    for k, v in _dumped_args.items()
+                    k: "[REDACTED]" if k in _sensitive_args else v for k, v in _dumped_args.items()
                 }
             else:
-                _logged_args = _dumped_args
+                _logged_args = dict.fromkeys(_dumped_args, "[NOT_LOGGED]")
             _log.info(
                 "tool.invoke",
                 tool=tool.name,

@@ -47,6 +47,18 @@ class ScopeContext:
             self._run_caches.pop(run_id, None)
             _run_id_ctx.reset(token)
 
+    def evict(self, key: str) -> None:
+        """Drop any cached instance for `key` from the singleton and RUN caches.
+
+        Called by `Container.bind` so rebinding a protocol actually takes
+        effect: without it, a key that had already been resolved kept serving
+        the previous impl out of the singleton cache and the rebind was a
+        silent no-op.
+        """
+        self._singletons.pop(key, None)
+        for cache in self._run_caches.values():
+            cache.pop(key, None)
+
     def get_or_create(self, key: str, factory: Callable[[], Any], *, scope: Scope) -> Any:
         if scope is Scope.TRANSIENT:
             return factory()

@@ -69,3 +69,7 @@ jobs:
         run: uv run black --check src tests
       - name: Type check (mypy)
         run: uv run mypy src/voussoir
+      # `mkdocs build --strict` lived only in the Makefile, so a broken docs
+      # reference could land on main unnoticed (audit, minor).
+      - name: Docs build (strict)
+        run: uv run mkdocs build --strict

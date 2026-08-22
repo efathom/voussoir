@@ -13,6 +13,12 @@ T = TypeVar("T")
 _Sentinel = object()
 
 
+def _scope_key(protocol: type, name: str | None) -> str:
+    """Cache key for a (protocol, name) binding. Shared by bind() and resolve()
+    so an eviction on rebind targets exactly the entry resolve() would read."""
+    return f"{protocol.__module__}.{protocol.__qualname__}#{name or ''}"
+
+
 class Container:
     """Lightweight DI container.
 
@@ -49,6 +55,10 @@ class Container:
             )
         is_factory = callable(impl) and not _looks_like_instance(impl, protocol)
         self._bindings[key] = _Binding(impl=impl, is_factory=is_factory, scope=scope)
+        # Rebinding must invalidate any instance the previous binding already
+        # produced, otherwise `resolve()` keeps serving the old impl from the
+        # singleton cache and the rebind is a silent no-op.
+        self._scopes.evict(_scope_key(protocol, name))
 
     def freeze(self, protocol: type, *, name: str | None = None) -> None:
         """Freeze a (protocol, name) binding key against subsequent bind().
@@ -74,7 +84,11 @@ class Container:
     ) -> T:
         binding = self._bindings.get((protocol, name))
         if binding is None:
-            if default is _Sentinel or default is None:
+            # Only the sentinel means "no default supplied". An explicit
+            # `default=None` is a legitimate "return None when unbound" —
+            # LLMGuardrailJudge / LLMJudge both rely on it to make
+            # ITelemetrySink optional.
+            if default is _Sentinel:
                 known = [n for (p, n) in self._bindings if p is protocol]
                 hint = f" (known names: {known})" if known else ""
                 raise LookupError(
@@ -84,7 +98,7 @@ class Container:
                 )
             return default  # type: ignore[no-any-return]
 
-        key = f"{protocol.__module__}.{protocol.__qualname__}#{name or ''}"
+        key = _scope_key(protocol, name)
         impl = binding.impl
         is_factory = binding.is_factory
 
@@ -114,17 +128,24 @@ class Container:
     def child(self) -> Container:
         """Return a child container that inherits this container's bindings.
 
-        The child shares the parent's singleton cache (instances live on the
-        parent) but has its own RUN-scope context. Useful for delegation: a
-        sub-agent's container is a child of its parent's.
+        The child starts from a snapshot of the parent's bindings and of the
+        singletons the parent has already constructed, so an unmodified child
+        keeps sharing the parent's instances. The snapshot is a *copy*: a
+        child that rebinds a key gets its own instance for it, and neither
+        that binding nor the instance it produces leaks back into the parent.
+        Pre-fix the cache was shared by reference and keyed by protocol alone,
+        so parent and child collided — whichever resolved first won, in both
+        directions (audit H1).
+
+        The child also has its own RUN-scope context. Useful for delegation:
+        a sub-agent's container is a child of its parent's.
         """
         c = Container()
         c._bindings = dict(self._bindings)
         # D6: child inherits parent's frozen keys so plugin rebind via a
         # child container is rejected the same way.
         c._frozen = set(self._frozen)
-        # Singletons are stored on the parent's scope context; share it:
-        c._scopes._singletons = self._scopes._singletons
+        c._scopes._singletons = dict(self._scopes._singletons)
         return c
 
 

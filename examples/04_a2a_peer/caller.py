@@ -16,50 +16,48 @@ from ctxforge.llm.openrouter_provider import (
 )
 
 from voussoir.a2a import AgentRef
-from voussoir.a2a.keys import EnvKeyProvider, KeyProvider
+from voussoir.a2a.keys import EnvKeyProvider
 from voussoir.agent.agent import Agent
 from voussoir.auth.authorizers.allow_all import AllowAllAuthorizer
-from voussoir.auth.protocol import Authorizer
 from voussoir.container import Container
-from voussoir.executors import IToolExecutor, StandardExecutor
-from voussoir.guardrails import DefaultGuardrailChain, IGuardrailChain
+from voussoir.container.defaults import default_container
 from voussoir.llm.fake_embedder import FakeEmbeddingProvider
-from voussoir.memory.adapter import InMemorySessionStore, InMemoryStore
-from voussoir.observability.sink import ITelemetrySink, NullTelemetrySink
-from voussoir.protocols import IEmbeddingProvider, ILLMProvider, IMemoryStore, ISessionStore
+
+MODEL = "deepseek/deepseek-v4-flash-0731"
 
 
-def build_unfrozen_container() -> Container:
-    """Mirror default_container's wiring minus the security-critical freeze,
-    so AllowAllAuthorizer can be bound for this demo."""
-    c = Container()
-    c.bind(IMemoryStore, InMemoryStore())
-    c.bind(ISessionStore, InMemorySessionStore())
-    c.bind(ITelemetrySink, NullTelemetrySink())  # type: ignore[type-abstract]
-    c.bind(KeyProvider, EnvKeyProvider(allow_ephemeral=True))  # type: ignore[type-abstract]
-    c.bind(Authorizer, AllowAllAuthorizer())  # type: ignore[type-abstract]
-    c.bind(IToolExecutor, StandardExecutor())  # type: ignore[type-abstract]
-    c.bind(IGuardrailChain, DefaultGuardrailChain([]))  # type: ignore[type-abstract]
-    c.bind(IEmbeddingProvider, FakeEmbeddingProvider())
-    c.bind(
-        ILLMProvider,
-        OpenRouterLLMProvider(
+def build_demo_container() -> Container:
+    """default_container with a permissive authorizer and the demo's LLM.
+
+    Both are frozen keys, so they are passed at construction rather than bound
+    afterwards. This used to be ~20 lines re-creating default_container's
+    wiring "minus the freeze" — which also meant binding an EMPTY guardrail
+    chain, so the demo ran with no guardrails at all. Now it inherits the
+    `standard` profile.
+    """
+    return default_container(
+        llm=OpenRouterLLMProvider(
             OpenRouterConfig(
                 api_key=os.environ["OPENROUTER_API_KEY"],
-                model="deepseek/deepseek-v4-flash-0731",
+                model=MODEL,
                 base_url=os.environ.get("OPENROUTER_BASE_URL") or OPENROUTER_BASE_URL,
             )
         ),
-    )  # type: ignore[type-abstract]
-    return c
+        embedder=FakeEmbeddingProvider(),
+        key_provider=EnvKeyProvider(allow_ephemeral=True),
+        # Demo only — grants every tool call. Production wants a RoleAuthorizer,
+        # DomainAuthorizer or ChainedAuthorizer here.
+        authorizer=AllowAllAuthorizer(),
+    )
 
 
 async def main() -> None:
     if not any(
-        os.environ.get(k)
-        for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY")
+        os.environ.get(k) for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY")
     ):
-        print("Set an LLM API key (ANTHROPIC_API_KEY/OPENAI_API_KEY/OPENROUTER_API_KEY) to run the caller.")
+        print(
+            "Set an LLM API key (ANTHROPIC_API_KEY/OPENAI_API_KEY/OPENROUTER_API_KEY) to run the caller."
+        )
         return
     if not os.environ.get("VOUSSOIR_A2A_JWT_SECRET"):
         print(
@@ -68,7 +66,7 @@ async def main() -> None:
         )
         return
 
-    c = build_unfrozen_container()
+    c = build_demo_container()
     ref = await AgentRef.discover("http://127.0.0.1:8765")
     print(f"Discovered: {ref.name} — {ref.description}")
 
@@ -83,7 +81,7 @@ async def main() -> None:
                 "summarizing them."
             ),
             delegates=[ref],
-            model="deepseek/deepseek-v4-flash-0731",
+            model=MODEL,
             container=c,
         )
         result = await lead.run(

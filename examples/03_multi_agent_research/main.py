@@ -16,45 +16,43 @@ from ctxforge.llm.openrouter_provider import (
     OpenRouterLLMProvider,
 )
 
-from voussoir import Agent, Container
-from voussoir.a2a.keys import EnvKeyProvider, KeyProvider
+from voussoir import Agent
+from voussoir.a2a.keys import EnvKeyProvider
 from voussoir.auth.authorizers.allow_all import AllowAllAuthorizer
-from voussoir.auth.protocol import Authorizer
-from voussoir.executors import IToolExecutor, StandardExecutor
-from voussoir.guardrails import DefaultGuardrailChain, IGuardrailChain
+from voussoir.container import Container
+from voussoir.container.defaults import default_container
 from voussoir.llm.fake_embedder import FakeEmbeddingProvider
-from voussoir.memory.adapter import InMemorySessionStore, InMemoryStore
-from voussoir.observability.sink import ITelemetrySink, NullTelemetrySink
-from voussoir.protocols import IEmbeddingProvider, ILLMProvider, IMemoryStore, ISessionStore
+
+MODEL = "deepseek/deepseek-v4-flash-0731"
 
 
-def build_unfrozen_container() -> Container:
-    """Mirror default_container's wiring without the security-critical freeze,
-    so AllowAllAuthorizer can be bound for this demo."""
-    container = Container()
-    container.bind(IMemoryStore, InMemoryStore())
-    container.bind(ISessionStore, InMemorySessionStore())
-    container.bind(ITelemetrySink, NullTelemetrySink())  # type: ignore[type-abstract]
-    container.bind(KeyProvider, EnvKeyProvider(allow_ephemeral=True))  # type: ignore[type-abstract]
-    container.bind(Authorizer, AllowAllAuthorizer())  # type: ignore[type-abstract]
-    container.bind(IToolExecutor, StandardExecutor())  # type: ignore[type-abstract]
-    container.bind(IGuardrailChain, DefaultGuardrailChain([]))  # type: ignore[type-abstract]
-    container.bind(IEmbeddingProvider, FakeEmbeddingProvider())
-    container.bind(
-        ILLMProvider,
-        OpenRouterLLMProvider(
+def build_demo_container() -> Container:
+    """default_container with a permissive authorizer and the demo's LLM.
+
+    Both are frozen keys, so they are passed at construction rather than bound
+    afterwards. This used to be ~20 lines re-creating default_container's
+    wiring "minus the freeze" — which also meant binding an EMPTY guardrail
+    chain, so the demo ran with no guardrails at all. Now it inherits the
+    `standard` profile.
+    """
+    return default_container(
+        llm=OpenRouterLLMProvider(
             OpenRouterConfig(
                 api_key=os.environ["OPENROUTER_API_KEY"],
-                model="deepseek/deepseek-v4-flash-0731",
+                model=MODEL,
                 base_url=os.environ.get("OPENROUTER_BASE_URL") or OPENROUTER_BASE_URL,
             )
         ),
-    )  # type: ignore[type-abstract]
-    return container
+        embedder=FakeEmbeddingProvider(),
+        key_provider=EnvKeyProvider(allow_ephemeral=True),
+        # Demo only — grants every tool call. Production wants a RoleAuthorizer,
+        # DomainAuthorizer or ChainedAuthorizer here.
+        authorizer=AllowAllAuthorizer(),
+    )
 
 
 async def main() -> None:
-    container = build_unfrozen_container()
+    container = build_demo_container()
 
     researcher = Agent(
         name="researcher",
@@ -65,7 +63,7 @@ async def main() -> None:
             "concise; cite no sources (you do not have web access in this "
             "demo)."
         ),
-        model="deepseek/deepseek-v4-flash-0731",
+        model=MODEL,
         container=container,
     )
     writer = Agent(
@@ -76,7 +74,7 @@ async def main() -> None:
             "produce a single concise paragraph (≤120 words) suitable for an "
             "executive summary."
         ),
-        model="deepseek/deepseek-v4-flash-0731",
+        model=MODEL,
         container=container,
     )
     lead = Agent(
@@ -88,7 +86,7 @@ async def main() -> None:
             "paragraph. Return only the writer's output."
         ),
         delegates=[researcher, writer],
-        model="deepseek/deepseek-v4-flash-0731",
+        model=MODEL,
         container=container,
     )
 

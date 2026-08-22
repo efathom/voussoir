@@ -18,7 +18,7 @@ from voussoir.container.defaults import default_container
 
 
 async def main() -> None:
-    os.environ.setdefault("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:6006/v1/traces")
+    os.environ.setdefault("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:6006")
     os.environ.setdefault("OTEL_SERVICE_NAME", "voussoir-demo")
 
     c = default_container()

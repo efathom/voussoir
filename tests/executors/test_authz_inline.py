@@ -367,16 +367,21 @@ async def test_no_container_authz_defaults_to_allow() -> None:
     assert ctx.authz_decisions[0].decision == "ALLOW"
 
 
-# ------- sensitive_args log redaction (v1.0.1 T6) -------
+# ------- tool.invoke arg logging (v1.0.1 T6; opt-in since the audit) -------
 
 
 async def test_executor_redacts_sensitive_args_in_log(
     make_container: Callable[..., Container], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """v1.0.1: sensitive_args keys are replaced with [REDACTED] in the tool.invoke log."""
+    """sensitive_args keys stay [REDACTED] even for a tool that opts into logging."""
     import voussoir.executors.standard as _std_mod
 
-    @tool(capability=Capability.READ_PUBLIC, name="db_query_v101", sensitive_args=["password"])
+    @tool(
+        capability=Capability.READ_PUBLIC,
+        name="db_query_v101",
+        sensitive_args=["password"],
+        log_args=True,
+    )
     async def db_query(host: str, password: str) -> str:
         return f"connected to {host}"
 
@@ -411,10 +416,10 @@ async def test_executor_redacts_sensitive_args_in_log(
 async def test_executor_no_sensitive_args_logs_all_fields(
     make_container: Callable[..., Container], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """v1.0.1: tools without sensitive_args log all fields (backward compat)."""
+    """A tool that opts in with log_args=True logs every value."""
     import voussoir.executors.standard as _std_mod
 
-    @tool(capability=Capability.READ_PUBLIC, name="plain_query_v101")
+    @tool(capability=Capability.READ_PUBLIC, name="plain_query_v101", log_args=True)
     async def plain_query(host: str, port: int) -> str:
         return f"{host}:{port}"
 
@@ -444,3 +449,44 @@ async def test_executor_no_sensitive_args_logs_all_fields(
     logged_args = invoke_logs[0]["args"]
     assert logged_args["host"] == "db.example.com"
     assert logged_args["port"] == 5432
+
+
+async def test_executor_elides_arg_values_by_default(
+    make_container: Callable[..., Container], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without log_args=True, argument NAMES are logged but values are not.
+
+    tool.invoke fires at INFO on every call and routinely carries user data, so
+    logging values had to become opt-in rather than opt-out (audit, minor).
+    """
+    import voussoir.executors.standard as _std_mod
+
+    @tool(capability=Capability.READ_PUBLIC, name="quiet_query_audit")
+    async def quiet_query(host: str, token: str) -> str:
+        return f"ok {host}"
+
+    c = make_container()
+    ex = StandardExecutor()
+    ctx = ToolContext(
+        run_id="r-3",
+        span_id="s",
+        allowed_capabilities=Capability.READ_PUBLIC,
+        container=c,
+    )
+    args = quiet_query.input_schema(host="db.example.com", token="super-secret")
+
+    captured_calls: list[dict[str, Any]] = []
+    real_info = _std_mod._log.info
+
+    def _capture_info(event: str, **kwargs: Any) -> None:
+        captured_calls.append({"event": event, **kwargs})
+        return real_info(event, **kwargs)
+
+    monkeypatch.setattr(_std_mod._log, "info", _capture_info)
+    assert await ex.invoke(quiet_query, args, ctx) == "ok db.example.com"
+
+    logged_args = [r for r in captured_calls if r.get("event") == "tool.invoke"][0]["args"]
+    # Names survive (useful for debugging), values do not.
+    assert set(logged_args) == {"host", "token"}
+    assert set(logged_args.values()) == {"[NOT_LOGGED]"}
+    assert "super-secret" not in str(logged_args)

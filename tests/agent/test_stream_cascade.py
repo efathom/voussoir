@@ -1,8 +1,8 @@
 """Locks streaming cascade gate behavior (Phase 5 Task C7).
 
 Phase 4.5a raised STREAMING_NOT_SUPPORTED unconditionally when a cascade was
-configured. C7 lifts this for max_cascade_depth=1 (single-pass cascade after
-the stream's `done` event). max_cascade_depth>1 (retry-capable cascade)
+configured. C7 lifts this for max_attempts=1 (single-pass cascade after
+the stream's `done` event). max_attempts>1 (retry-capable cascade)
 remains gated until a future task.
 """
 
@@ -53,8 +53,8 @@ class _FailValidator:
 # ---------------------------------------------------------------------------
 
 
-async def test_stream_max_depth_1_pass_emits_cascade_passed(make_container):
-    cascade = RequestCascade(verifier=_PassValidator(), max_cascade_depth=1)
+async def test_stream_max_attempts_1_pass_emits_cascade_passed(make_container):
+    cascade = RequestCascade(verifier=_PassValidator(), max_attempts=1)
     a = Agent(name="x", container=make_container(_streaming_llm("hello")), cascade=cascade)
     events = []
     async for ev in a.stream("hi"):
@@ -71,8 +71,8 @@ async def test_stream_max_depth_1_pass_emits_cascade_passed(make_container):
     assert cascade_ev.payload["verdict"] == "PASS"
 
 
-async def test_stream_max_depth_1_fail_emits_cascade_failed(make_container):
-    cascade = RequestCascade(verifier=_FailValidator(), max_cascade_depth=1)
+async def test_stream_max_attempts_1_fail_emits_cascade_failed(make_container):
+    cascade = RequestCascade(verifier=_FailValidator(), max_attempts=1)
     a = Agent(name="x", container=make_container(_streaming_llm("oops")), cascade=cascade)
     events = []
     async for ev in a.stream("hi"):
@@ -84,9 +84,9 @@ async def test_stream_max_depth_1_fail_emits_cascade_failed(make_container):
     assert failed_ev.payload["verdict"] == "fail"
 
 
-async def test_stream_max_depth_gt_1_still_raises(make_container):
+async def test_stream_max_attempts_gt_1_still_raises(make_container):
     """Retry-capable cascade still rejects streaming (deferred to future task)."""
-    cascade = RequestCascade(verifier=_PassValidator(), max_cascade_depth=2)
+    cascade = RequestCascade(verifier=_PassValidator(), max_attempts=2)
     a = Agent(name="x", container=make_container(_streaming_llm("hello")), cascade=cascade)
     with pytest.raises(PolicyViolationError) as excinfo:
         async for _ in a.stream("hi"):
