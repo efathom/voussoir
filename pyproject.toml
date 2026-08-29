@@ -25,7 +25,7 @@ dependencies = [
   "anyio>=4.14.2",
   "httpx>=0.28.1",
   "structlog>=26.1.0",
-  "anthropic>=0.121.0",
+  "anthropic>=1.1.0",
   # Direct-URL requirement so a plain `pip install git+…/voussoir` resolves the
   # REAL ctxforge. [tool.uv.sources] below is a uv extension that pip never
   # reads, so a bare `ctxforge` here resolved to the unrelated same-named
@@ -39,7 +39,7 @@ dependencies = [
   # (a2a/keys.py → `from cryptography...`). Before this move, `pip install
   # voussoir` without the [a2a] extra could not even `import voussoir`.
   "PyJWT>=2.13.0",
-  "cryptography>=50.0.0",
+  "cryptography>=50.0.1",
   # Phase 5 Task C1: OTel moved from [observability] extra to base deps.
   # Every voussoir install ships tracing + OTLP HTTP export out of the box.
   "opentelemetry-api>=1.44.0",
@@ -48,7 +48,7 @@ dependencies = [
   # Phase 6 A7: OS keychain support for KeychainCredentialBroker.
   "keyring>=25.7.0",
   # Phase 6 B1: CLI entry point — must be a base dep (not dev-only).
-  "click>=8.4.2",
+  "click>=8.5.0",
 ]
 
 [tool.uv.sources]
@@ -61,18 +61,18 @@ voussoir = "voussoir.cli.main:main"
 
 [project.optional-dependencies]
 # Note: `httpx` is in base deps; not re-listed in extras that need it.
-mcp           = ["mcp>=2.0.0", "httpx2>=2.5.0"]
-a2a           = ["fastapi>=0.141.1", "uvicorn>=0.52.1"]
+mcp           = ["mcp>=2.1.1", "httpx2>=2.12.0"]
+a2a           = ["fastapi>=0.141.1", "uvicorn>=0.52.4"]
 # sqlite-vec is intentionally absent: backends/sqlite.py uses a Python-side
 # cosine loop because loading SQLite extensions is disabled in many stdlib
 # builds (notably macOS). The dep shipped for a while without ever being
 # imported (audit, minor).
-mem-sqlite    = ["sentence-transformers>=5.7.0"]
+mem-sqlite    = ["sentence-transformers>=6.0.0"]
 mem-postgres  = ["psycopg[binary]>=3.3.4"]
 mem-qdrant    = ["qdrant-client>=1.19.0"]
 yase          = ["grpcio>=1.83.0"]
 mem-graph     = ["neo4j>=6.2.0", "qdrant-client>=1.19.0"]
-tokenizers    = ["tiktoken>=0.13.0"]
+tokenizers    = ["tiktoken>=0.14.0"]
 observability = []  # Phase 5 Task C1: OTel moved to base deps. Kept as an empty
                    # alias so `pip install voussoir[observability]` from pre-Phase-5
                    # docs keeps working without error.
@@ -88,16 +88,16 @@ dev = [
   "pytest-asyncio>=1.4.0",
   "pytest-cov>=7.1.0",
   "respx>=0.23.1",
-  "ruff>=0.16.2",
+  "ruff>=0.16.4",
   # Pin black exactly to match .pre-commit-config.yaml so local and CI
   # formatting agree (newer black majors change layout rules and cause churn).
-  "black==24.4.2",
-  "mypy>=2.3.0",
+  "black==26.5.1",
+  "mypy>=2.3.1",
   "pre-commit>=4.6.2",
   # Phase 6 C1: docs toolchain
   "mkdocs-material>=9.7.7",
   "mkdocstrings[python]>=1.0.6",
-  "types-pyyaml>=6.0.12.20260724",
+  "types-pyyaml>=6.0.12.20260815",
 ]
 
 [tool.hatch.metadata]
