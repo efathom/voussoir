@@ -32,15 +32,13 @@ def test_bind_creates_registry_if_missing(make_container, stub_llm, tmp_path: Pa
 
 def test_yaml_define_from_scratch(make_container, stub_llm, tmp_path: Path) -> None:
     p = tmp_path / "voussoir.yaml"
-    p.write_text(
-        """
+    p.write_text("""
 agents:
   researcher:
     system_prompt: |
       Research things.
     model: claude-sonnet-4-6
-"""
-    )
+""")
     c = make_container(stub_llm())
     bind_agent_registry(c, config_path=p)
     a = c.resolve(AgentRegistry).get("researcher")
@@ -81,16 +79,14 @@ def test_three_agent_round_trip(make_container, stub_llm, tmp_path: Path) -> Non
     register_agent(c, Agent("alpha", instructions="A", container=c, model="m1"))
     register_agent(c, Agent("beta", instructions="B", container=c))
     p = tmp_path / "voussoir.yaml"
-    p.write_text(
-        """
+    p.write_text("""
 agents:
   alpha:
     model: m2
   gamma:
     system_prompt: |
       Gamma defined in yaml.
-"""
-    )
+""")
     bind_agent_registry(c, config_path=p)
     r = c.resolve(AgentRegistry)
     assert r.get("alpha").model == "m2"
