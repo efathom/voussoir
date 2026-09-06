@@ -203,16 +203,14 @@ def test_exit_6_three_agent_yaml_round_trip(make_container, stub_llm, tmp_path: 
     register_agent(c, Agent("alpha", instructions="A", container=c, model="m1"))
     register_agent(c, Agent("beta", instructions="B", container=c))
     p = tmp_path / "voussoir.yaml"
-    p.write_text(
-        """
+    p.write_text("""
 agents:
   alpha:
     model: m2
   gamma:
     system_prompt: |
       Gamma yaml-defined.
-"""
-    )
+""")
     bind_agent_registry(c, config_path=p)
     r = c.resolve(AgentRegistry)
     assert r.get("alpha").model == "m2"

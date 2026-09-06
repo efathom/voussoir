@@ -70,8 +70,7 @@ class SQLiteMemoryStore(IMemoryStore):
         con = self._connect()
         try:
             con.execute("PRAGMA journal_mode = WAL")
-            con.executescript(
-                """
+            con.executescript("""
                 CREATE TABLE IF NOT EXISTS memories (
                     memory_id        TEXT PRIMARY KEY,
                     user_id          TEXT NOT NULL,
@@ -84,8 +83,7 @@ class SQLiteMemoryStore(IMemoryStore):
                     embedding        TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id);
-                """
-            )
+                """)
             con.commit()
         finally:
             con.close()

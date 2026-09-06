@@ -20,14 +20,12 @@ def test_empty_yaml_yields_empty_config(tmp_path: Path) -> None:
 
 def test_minimal_agent(tmp_path: Path) -> None:
     p = tmp_path / "voussoir.yaml"
-    p.write_text(
-        """
+    p.write_text("""
 agents:
   researcher:
     model: claude-sonnet-4-6
     temperature: 0.3
-"""
-    )
+""")
     cfg = load_voussoir_config(p)
     assert "researcher" in cfg.agents
     a = cfg.agents["researcher"]
@@ -38,8 +36,7 @@ agents:
 
 def test_define_from_scratch(tmp_path: Path) -> None:
     p = tmp_path / "voussoir.yaml"
-    p.write_text(
-        """
+    p.write_text("""
 agents:
   fact_checker:
     model: claude-haiku-4-5
@@ -47,8 +44,7 @@ agents:
       You verify facts.
     delegates: [researcher]
     description: "Cross-references claims."
-"""
-    )
+""")
     cfg = load_voussoir_config(p)
     a = cfg.agents["fact_checker"]
     assert a.system_prompt is not None
@@ -59,28 +55,24 @@ agents:
 
 def test_extra_field_rejected(tmp_path: Path) -> None:
     p = tmp_path / "voussoir.yaml"
-    p.write_text(
-        """
+    p.write_text("""
 agents:
   foo:
     model: m1
     tools: [some_tool]
-"""
-    )
+""")
     with pytest.raises(ValidationError):
         load_voussoir_config(p)
 
 
 def test_extra_top_level_rejected(tmp_path: Path) -> None:
     p = tmp_path / "voussoir.yaml"
-    p.write_text(
-        """
+    p.write_text("""
 agents:
   foo:
     system_prompt: x
 unknown_block: 42
-"""
-    )
+""")
     with pytest.raises(ValidationError):
         load_voussoir_config(p)
 
